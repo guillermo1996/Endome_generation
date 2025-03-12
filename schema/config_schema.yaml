@@ -1,0 +1,24 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: schema for snakemake configuration file
+
+properties:
+  ref_genome:
+    type: string
+    description: Path to reference genome
+  ref_annotation:
+    type: string
+    description: Path to reference annotation
+  sq3_path:
+    type: string
+    default: "Resources/Sqanti3_v5.3.6"
+    description: Path to Sqanti3 directory if installed locally. If it does not exists, it will be created via the download script.
+  sq3_download_script:
+    type: string
+    default: "Resources/download_sqanti3.sh"
+    description: Path to Sqanti3 download directory
+
+required:
+  - ref_genome
+  - ref_annotation
+  - sq3_path
+  - sq3_download_script

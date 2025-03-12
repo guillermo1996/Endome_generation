@@ -1,4 +1,258 @@
-# Main entrypoint of the workflow. 
-# Please follow the best practices: 
-# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
-# in particular regarding the standardized folder structure mentioned there. 
+import pandas as pd
+from snakemake.utils import min_version
+from snakemake.utils import validate
+from sys import stderr, stdout
+from datetime import datetime
+
+# Set the minimum snakemake version
+min_version("8.30.0")
+
+# Load the configuration file and validate with the provided schema
+configfile: "config/config.yaml"
+# validate(config, schema="../schema/config_schema.yaml")
+
+# Define logging into stdout
+def message(type, text, **kwargs):
+    now = datetime.now()
+    print(f"[{type}] {now.strftime("%Y-%m-%d %H:%M:%S")} - {text}", file=stdout, **kwargs)
+
+message("INFO", "Start snakemake pipeline")
+
+# Load the generic configurations
+ref_genome = config["ref_genome"]
+ref_annotation = config["ref_annotation"]
+
+# Define the input samples
+input_dir = config["input_dir"]
+input_metadata = config["input_metadata"]
+use_controls_as_input = config["use_controls_as_input"]
+sample_prefix = config["sample_prefix"]
+sample_suffix = config["sample_suffix"]
+
+if use_controls_as_input and Path(input_metadata).is_file():
+    samples = pd.read_csv(input_metadata, sep="\t")  # Adjust separator if needed
+    input_samples = samples.loc[samples["condition"] == "CT", "sample_id"].tolist() # Adjust the columns and conditions
+else:
+    input_samples = config["input_samples"]
+
+rule all:
+    input:
+        sorted_bam = expand("results/Samtools_sort/{sample}_sorted.bam", sample = input_samples),
+        sample_gtf = expand("results/StringTie_Sample_Assembly/{sample}.gtf", sample = input_samples),
+        gffcompare_clean = "results/gffcompare/gffcompare.annotated.clean.gtf",
+        sq3_qc = "results/Sqanti3_QC/sq3.annotated_corrected.gtf.cds.gff",
+        sq3_filter = "results/Sqanti3_Filter/sq3.annotated.filtered.gtf",
+        sq3_recue = "results/Sqanti3_Rescue/sq3.annotated_rescued.gtf"
+        
+################################################################################
+## Alignment & Sorting
+################################################################################
+
+##########
+## Sample alignment
+def get_fastq_files(wildcards):
+    file_name = f"{sample_prefix}{wildcards.sample}{sample_suffix}"
+    file_path = os.path.join(input_dir, file_name)
+
+    return(file_path)
+
+rule minimap2_align:
+    input:
+        genome = ref_genome,
+        fastq = get_fastq_files
+    output: temp("results/Minimap2/{sample}.sam"),
+    log: "logs/Minimap2/{sample}.log",
+    params:
+        extra =" -ax splice -uf --MD --secondary=no",
+        k = config["k_flag"]
+    threads: 8
+    conda: "envs/minimap2.yaml",
+    shell: "minimap2 {params.extra} -k {params.k} -t {threads} -o {output} {input.genome} {input.fastq} > {log} 2>&1"
+
+##########
+## Sorting
+rule samtools_sort:
+    input: rules.minimap2_align.output
+    output: "results/Samtools_sort/{sample}_sorted.bam",
+    log: "logs/Samtools_sort/{sample}.log",
+    resources:
+        mem="5G"
+    threads: 6
+    conda: "envs/samtools.yaml"
+    shell:
+        "samtools view -b -u -@{threads} {input} | "
+        "samtools sort -@{threads} -m {resources.mem} -T tmp_ -o {output}"
+
+################################################################################
+## Transcriptome Assembly
+################################################################################
+
+##########
+## StringTie Assemble transcriptome per sample
+ref_in_assembly = config["ref_in_assembly"]
+long_read_processing_in_assembly = config["long_read_processing_in_assembly"]
+
+rule stringtie_assembly:
+    input: rules.samtools_sort.output
+    output: "results/StringTie_Sample_Assembly/{sample}.gtf"
+    log: "logs/StringTie_Sample_Assembly/{sample}.log"
+    params:
+        G_flag = f"-G {ref_annotation}" if ref_in_assembly else "",
+        L_flag = f"-L" if long_read_processing_in_assembly else "",
+    threads: 8
+    conda: "envs/stringtie.yaml"
+    shell:
+        "stringtie --rf -p {threads} {params.L_flag} {params.G_flag} -o {output} {input} > {log} 2>&1"
+
+##########
+## StringTie Merge Samples
+ref_in_merge = config["ref_in_merge"]
+long_read_processing_in_merge = config["long_read_processing_in_merge"]
+
+rule write_gtf_list:
+    input: expand("results/StringTie_Sample_Assembly/{sample}.gtf", sample = input_samples)
+    output: "results/StringTie_Sample_Assembly/gtf_list.txt"
+    shell: "printf '%s\n' {input} > {output}"
+
+rule stringtie_merge:
+    input: rules.write_gtf_list.output
+    output: "results/StringTie_Merge/control_genome.gtf",
+    log: "logs/StringTie_Merge/control_genome.log",
+    params:
+        G_flag = f"-G {ref_annotation}" if ref_in_merge else "",
+        L_flag = f"-L" if long_read_processing_in_merge else "",
+    threads: 16,
+    conda: "envs/stringtie.yaml",
+    shell: "stringtie --merge {params.L_flag} {params.G_flag} -p {threads} -o {output} {input} > {log} 2>&1"
+
+################################################################################
+## Transcriptome comparison & filtration
+################################################################################
+
+##########
+## gffcompare annotation
+rule gffcompare:
+    input: rules.stringtie_merge.output,
+    output: "results/gffcompare/gffcompare.annotated.gtf",
+    log: "logs/gffcompare/gffcompare.annotated.log",
+    params: 
+        r_flag = f"-r {ref_annotation}",
+        output_name = "results/gffcompare/gffcompare",
+    conda: "envs/gffcompare.yaml",
+    shell: "gffcompare -V {params.r_flag} -o {params.output_name} {input} > {log} 2>&1"
+
+##########
+## Manual filtering of Chromosomes and Strand
+rule manual_filter:
+    input: rules.gffcompare.output
+    output: "results/gffcompare/gffcompare.annotated.clean.gtf"
+    log: "logs/gffcompare/gffcompare.annotated.clean.log"
+    shell: "awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' {input} > {output} 2> {log}"
+
+################################################################################
+## Sqanti3
+################################################################################
+sq3_download_script = config["sq3_download_script"]
+sq3_path = "resources/Sqanti3"
+
+##########
+## Sqanti3 execution enviroment
+rule download_sqanti3:
+    input: ancient(sq3_download_script)
+    output:
+        sq3_dir = directory(sq3_path),
+        sq3_qc = f"{sq3_path}/sqanti3_qc.py",
+        sq3_filter = f"{sq3_path}/sqanti3_filter.py",
+        sq3_rescue = f"{sq3_path}/sqanti3_rescue.py",
+        sq3_env = f"{sq3_path}/SQANTI3.conda_env.yml",
+        default_rules = f"{sq3_path}/src/utilities/filter/filter_default.json"
+    log: "logs/sq3_logs/download_sqanti3.log"
+    conda: "envs/download_scripts.yaml"
+    script: "scripts/download_sqanti3.sh"
+    # shell:
+    #     """
+    #     pushd $(dirname {input})
+    #     bash $(basename {input})
+    #     popd
+    #     rm -rf {output.sq3_dir}
+    #     mv $(dirname {input})/Sqanti3_v5.3.6 $(dirname {output.sq3_dir})
+    #     """
+        
+# rule create_sqanti3_env:
+#     input: f"{sq3_path}/SQANTI3.conda_env.yml"
+#     output: directory(".snakemake/conda/sq3_env")
+#     log: "logs/Sqanti3_env/sq3_env.log"
+#     shell: "conda env create -f {input} --prefix {output} > {log} 2>&1"
+
+##########
+## Sqanti3 pipeline
+rule sqanti3_qc:
+    input: 
+        sq3_qc = f"{sq3_path}/sqanti3_qc.py",
+        isoform = lambda wc: rules.manual_filter.output if wc.sq3_ref != "_reference" else ref_annotation,
+        annotation = ref_annotation,
+        genome = ref_genome,
+    output:
+        classification = "results/Sqanti3_QC{sq3_ref}/{prefix}_classification.txt",
+        corrected_gff = "results/Sqanti3_QC{sq3_ref}/{prefix}_corrected.gtf.cds.gff",
+        corrected_fasta = "results/Sqanti3_QC{sq3_ref}/{prefix}_corrected.fasta",
+    log: "logs/sq3_logs{sq3_ref}/{prefix}_qc.log"
+    wildcard_constraints: 
+        sq3_ref = ".{0}|_.+"
+    threads: 32
+    conda: "envs/sqanti3.yaml" # ".snakemake/conda/sq3_env" ~ Bug in current snakemake version https://github.com/snakemake/snakemake/issues/3192
+    shell: 
+        """
+        python {input.sq3_qc} --force_id_ignore -n {threads} -o {wildcards.prefix} -d results/Sqanti3_QC{wildcards.sq3_ref} --report skip \\
+        {input.isoform} {input.annotation} {input.genome} > {log} 2>&1
+        """
+
+rule sqanti3_filter:
+    input:
+        sq3_filter = f"{sq3_path}/sqanti3_filter.py",
+        classification = "results/Sqanti3_QC/{prefix}_classification.txt",
+        corrected_gff = "results/Sqanti3_QC/{prefix}_corrected.gtf.cds.gff"
+    output: 
+        filtered_gtf = "results/Sqanti3_Filter/{prefix}.filtered.gtf",
+        filtered_classification = "results/Sqanti3_Filter/{prefix}_RulesFilter_result_classification.txt"
+    log: "logs/sq3_logs/{prefix}_filter.log"
+    conda: "envs/sqanti3.yaml"
+    shell: 
+        "python {input.sq3_filter} rules --gtf {input.corrected_gff} -d Results/Sqanti3_Filter {input.classification} > {log} 2>&1"
+
+rule sqanti3_rescue:
+    input:
+        sq3_rescue = f"{sq3_path}/sqanti3_rescue.py",
+        isoforms = "results/Sqanti3_QC/{prefix}_corrected.fasta",
+        filtered_gtf = "results/Sqanti3_Filter/{prefix}.filtered.gtf",
+        filtered_classification = "results/Sqanti3_Filter/{prefix}_RulesFilter_result_classification.txt",
+        ref_genome = ref_genome,
+        ref_annotation = ref_annotation,
+        ref_annotation_classification = "results/Sqanti3_QC_reference/sq3.reference_classification.txt",
+        rules = os.path.join(sq3_path, "src/utilities/filter/filter_default.json"),
+    output: "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
+    log: "logs/sq3_logs/{prefix}_rescue.log"
+    conda: "envs/sqanti3.yaml"
+    shell:
+        "python {input.sq3_rescue} rules --isoforms {input.isoforms} --gtf {input.filtered_gtf} "
+        "--refGenome {input.ref_genome} --refGTF {input.ref_annotation} --refClassif {input.ref_annotation_classification} "
+        "--mode full -j {input.rules} -d Results/Sqanti3_Rescue -o {wildcards.prefix} "
+        "{input.filtered_classification} > {log} 2>&1"
+
+################################################################################
+## Endome Truncation
+################################################################################
+
+### The following rule was extracted and addapted from `txcutr-db` by Mayrlab: https://github.com/Mayrlab/txcutr-db
+rule gtxcutr_truncation:
+    input: 
+        gtf = rules.sqanti3_rescue.output # "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
+    output: 
+        gtf = "results/gtxcutr/{prefix}.gtxcutr.w{width}.gtf.gz",
+        fa = "results/gtxcutr/{prefix}.gtxcutr.w{width}.fa.gz"
+    params:
+        mergeDist = 200,
+        genome = "hg38"
+    conda: "envs/gtxcutr.yaml"
+    threads: 20
+    script: "scripts/gtxcutr.R" # Modified `txcutr.R` script to include my version of the package

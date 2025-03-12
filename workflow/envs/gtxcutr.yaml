@@ -1,0 +1,30 @@
+name: gtxcutr_2
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - openssl=3.4.1
+  - libcurl=8.12.1
+  - r-base=4.3.2
+  - r-devtools=2.4.5
+  - r-dplyr=1.1.4
+  - r-tibble=3.2.1
+  - r-magrittr=2.0.3
+  - bioconductor-annotationdbi=1.64.1
+  - bioconductor-genomicfeatures=1.54.1
+  - bioconductor-iranges=2.36.0
+  - bioconductor-genomicranges=1.54.1
+  - bioconductor-biocgenerics=0.48.1
+  - bioconductor-biostrings=2.70.1
+  - bioconductor-s4vectors=0.40.2
+  - bioconductor-rtracklayer=1.62.0
+  - bioconductor-biocparallel=1.36.0
+  
+  # mm10 annotation and sequence
+  #- bioconductor-txdb.mmusculus.ucsc.mm10.ensgene
+  - bioconductor-bsgenome.mmusculus.ucsc.mm10
+
+  # hg38 annotation and sequence
+  #- bioconductor-txdb.hsapiens.ucsc.hg38.knownGene
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38
