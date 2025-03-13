@@ -249,7 +249,8 @@ rule gtxcutr_truncation:
         gtf = rules.sqanti3_rescue.output # "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
     output: 
         gtf = "results/gtxcutr/{prefix}.gtxcutr.w{width}.gtf.gz",
-        fa = "results/gtxcutr/{prefix}.gtxcutr.w{width}.fa.gz"
+        fa = "results/gtxcutr/{prefix}.gtxcutr.w{width}.fa.gz",
+        tsv = "results/gtxcutr/{prefix}.gtxcutr.w{width}.merge.tsv"
     params:
         mergeDist = 200,
         genome = "hg38"
