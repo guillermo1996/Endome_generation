@@ -3,6 +3,8 @@ resources/**
 logs/**
 .snakemake
 .snakemake/**
+*.Rproj
+.Rproj.user/**
 
 .github/
 .template/

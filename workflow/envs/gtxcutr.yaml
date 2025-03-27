@@ -1,4 +1,4 @@
-name: gtxcutr_2
+name: gtxcutr
 channels:
   - conda-forge
   - bioconda
@@ -22,7 +22,7 @@ dependencies:
   - bioconductor-rtracklayer=1.62.0
   - bioconductor-biocparallel=1.36.0
   - bioconductor-plyranges=1.22.0
-  
+
   # mm10 annotation and sequence
   #- bioconductor-txdb.mmusculus.ucsc.mm10.ensgene
   - bioconductor-bsgenome.mmusculus.ucsc.mm10

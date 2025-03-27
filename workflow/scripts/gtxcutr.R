@@ -7,9 +7,9 @@
 if (interactive()) {
   library(methods)
   Snakemake <- setClass(
-    "Snakemake", 
+    "Snakemake",
     slots=c(
-      input='list', 
+      input='list',
       output='list',
       params='list',
       wildcards='list',
@@ -34,6 +34,8 @@ if (interactive()) {
 library(gtxcutr)
 library(BSgenome)
 library(GenomicFeatures)
+library(BiocParallel)
+library(magrittr)
 
 ## convert arguments
 maxTxLength <- as.integer(snakemake@wildcards$width)
