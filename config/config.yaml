@@ -45,3 +45,18 @@ long_read_processing_in_merge: False
 
 ### Path to Sqanti3 download directory - (Required: recommended default)
 sq3_download_script: "workflow/scripts/download_sqanti3.sh"
+
+################################################################################
+## ORF Filtration
+
+### Whether to use AGAT, gffread or none to ensure correctness in the resulting GTF from Sqanti3
+gtf_correction_method: "gffread" # Other valid options are 'gffread' or 'none/NULL'.
+filter_gtf_preTruncation: True
+
+### Control the transcript categories to keep
+keep_known_orf: False
+keep_novel_orf: False
+keep_not_orf: False
+keep_hasCDS: True
+
+

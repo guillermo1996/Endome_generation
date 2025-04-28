@@ -5,6 +5,7 @@ logs/**
 .snakemake/**
 *.Rproj
 .Rproj.user/**
+**.html
 
 .github/
 .template/

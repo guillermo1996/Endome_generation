@@ -13,19 +13,16 @@ if (interactive()) {
       output='list',
       params='list',
       wildcards='list',
-      log="list",
       threads='numeric'
     )
   )
   snakemake <- Snakemake(
-      input=list(gtf="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf"),
-      output=list(gtf="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.gtf",
-                  fa="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.fa",
-                  transcript_overlap="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.overlaps.tsv",
-                  merge_table="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.merge.tsv"),
+      input=list(gtf="homo_sapiens/Homo_sapiens.GRCh38.104.mRNA_ends_found.gtf.gz"),
+      output=list(gtf="/fscratch/fanslerm/ensembl.hg38.mRNA_ends_found.txcutr.w500.gtf",
+                  fa="/fscratch/fanslerm/ensembl.hg38.mRNA_ends_found.txcutr.w500.fa",
+                  tsv="/fscratch/fanslerm/ensembl.hg38.mRNA_ends_found.txcutr.w500.merge.tsv"),
       params=list(mergeDist="200", genome="hg38"),
-      wildcards=list(width="500", txEnd="3p"),
-      log = list("/home/grocamora/RytenLab-Research/38-Endome_generation/logs/gtxcutr/sq3.annotated.w500.3p.log"),
+      wildcards=list(width="500"),
       threads=1
   )
 }
@@ -34,7 +31,7 @@ if (interactive()) {
 ## Libraries and Parameters
 ################################################################################
 
-library(gtxcutr)
+library(txcutr)
 library(BSgenome)
 library(GenomicFeatures)
 library(BiocParallel)
@@ -42,33 +39,26 @@ library(magrittr)
 
 ## convert arguments
 maxTxLength <- as.integer(snakemake@wildcards$width)
-txEnd <- snakemake@wildcards$txEnd
 minDistance <- as.integer(snakemake@params$mergeDist)
-overlap_path <- snakemake@output$transcript_overlap
+
 ## load genome
 bsg <- getBSgenome(snakemake@params$genome)
 
 ## set cores
-BiocParallel::register(BiocParallel::MulticoreParam(snakemake@threads, progressbar = F))
-BPPARAM = bpparam()
-# BiocParallel::register(BiocParallel::SerialParam(progressbar = T))
+BiocParallel::register(BiocParallel::MulticoreParam(snakemake@threads))
 
 ################################################################################
 ## Load Data, Truncate, and Export
 ################################################################################
 
 txdb <- makeTxDbFromGFF(file=snakemake@input$gtf, organism=organism(bsg))
-
 txdb <- keepStandardChromosomes(txdb, pruning.mode="coarse")
 seqlevelsStyle(txdb) <- "UCSC"
 
-txdb_result <- truncateTxome(txdb, maxTxLength = maxTxLength, overlap_path = overlap_path, txEnd = txEnd)
+txdb_result <- truncateTxome(txdb, maxTxLength)
 
-print("Export GTF")
 exportGTF(txdb_result, snakemake@output$gtf)
 
-print("Export FASTA")
 exportFASTA(txdb_result, bsg, snakemake@output$fa)
 
-print("Export MergeTable")
-exportMergeTable(txdb_result, snakemake@output$merge_table, minDistance=minDistance)
+exportMergeTable(txdb_result, snakemake@output$tsv, minDistance=minDistance)

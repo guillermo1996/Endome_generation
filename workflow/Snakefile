@@ -16,7 +16,7 @@ def message(type, text, **kwargs):
     now = datetime.now()
     print(f"[{type}] {now.strftime("%Y-%m-%d %H:%M:%S")} - {text}", file=stdout, **kwargs)
 
-message("INFO", "Start snakemake pipeline")
+# message("INFO", "Start snakemake pipeline")
 
 # Load the generic configurations
 ref_genome = config["ref_genome"]
@@ -37,16 +37,16 @@ else:
 
 rule all:
     input:
-        sorted_bam = expand("results/Samtools_sort/{sample}_sorted.bam", sample = input_samples),
-        sample_gtf = expand("results/StringTie_Sample_Assembly/{sample}.gtf", sample = input_samples),
-        gffcompare_clean = "results/gffcompare/gffcompare.annotated.clean.gtf",
-        sq3_qc = "results/Sqanti3_QC/sq3.annotated_corrected.gtf.cds.gff",
-        sq3_filter = "results/Sqanti3_Filter/sq3.annotated.filtered.gtf",
-        sq3_recue = "results/Sqanti3_Rescue/sq3.annotated_rescued.gtf",
-        gtf_complete = "results/AGAT/sq3.annotated.gtf",
-        gtf_orf = "results/ORF_Categorization/sq3.annotated_orf.gtf"
-        #truncated_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w500.gtf.gz",
-        #kallisto_index = "results/gtxcutr/sq3.annotated.gtxcutr.w500.kdx",
+        # sorted_bam = expand("results/Samtools_sort/{sample}_sorted.bam", sample = input_samples),
+        # sample_gtf = expand("results/StringTie_Sample_Assembly/{sample}.gtf", sample = input_samples),
+        # gffcompare_clean = "results/gffcompare/gffcompare.annotated.clean.gtf",
+        # sq3_qc = "results/Sqanti3_QC/sq3.annotated_corrected.gtf.cds.gff",
+        # sq3_filter = "results/Sqanti3_Filter/sq3.annotated.filtered.gtf",
+        # sq3_recue = "results/Sqanti3_Rescue/sq3.annotated_rescued.gtf",
+        # truncated_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w500.3p.gtf.gz",
+        truncated_3p_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w500.3p.gtf.gz",
+        truncated_5p_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w300.5p.gtf.gz",
+        truncated_txcutr_endome = "results/txcutr/sq3.annotated.txcutr.w500.gtf.gz"
         
 ################################################################################
 ## Alignment & Sorting
@@ -196,7 +196,7 @@ rule sqanti3_qc:
     benchmark: "benchmarks/sq3_benchmarks{sq3_ref}/{prefix}_qc.tsv"
     wildcard_constraints: 
         sq3_ref = ".{0}|_.+"
-    threads: 32
+    threads: 16
     conda: "envs/sqanti3.yaml" # ".snakemake/conda/sq3_env" ~ Bug in current snakemake version https://github.com/snakemake/snakemake/issues/3192
     shell: 
         """
@@ -241,29 +241,62 @@ rule sqanti3_rescue:
 ################################################################################
 ## ORF Identification & Categorization
 ################################################################################
+keep_known_orf = config["keep_known_orf"]
+keep_novel_orf = config["keep_novel_orf"]
+keep_not_orf = config["keep_not_orf"]
+keep_hasCDS = config["keep_hasCDS"]
 
-rule gtf_completeness:
+gtf_correction_method = config["gtf_correction_method"]
+
+def select_gtf_correction_input(gtf_correction_method = "none"):
+    if gtf_correction_method == "agat":
+        return rules.agat_correction.output
+    elif gtf_correction_method == "gffread":
+        return rules.gffread_correction.output
+    else:
+        return rules.sqanti3_rescue.output
+
+rule agat_correction:
     input: rules.sqanti3_rescue.output
     output: "results/AGAT/{prefix}.gtf"
     log: "logs/AGAT/{prefix}.log"
     benchmark: "benchmarks/AGAT/{prefix}.tsv"
     conda: "envs/agat.yaml"
-    shell: "agat_convert_sp_gxf2gxf.pl --gff {input} -o {output} > {log}"
+    shell: "agat_convert_sp_gff2gtf.pl --gtf_version 3 --gff {input} -o {output} > {log}"
+
+rule gffread_correction:
+    input: rules.sqanti3_rescue.output
+    output: "results/gffread/{prefix}.gtf"
+    log: "logs/gffread/{prefix}.log"
+    benchmark: "benchmarks/gffread/{prefix}.tsv"
+    conda: "envs/gffread.yaml"
+    shell: "gffread -E {input} -T -o {output} > {log}"
 
 rule orf_categorization:
     input:
-        gtf = rules.gtf_completeness.output,
+        gtf = select_gtf_correction_input(gtf_correction_method),
         sq3_class = rules.sqanti3_filter.output.filtered_classification
     output: 
-        gtf = "results/ORF_Categorization/{prefix}_orf.gtf"
-    log: "logs/ORF_Categorization/{prefix}_orf.log"
-    benchmark: "benchmarks/ORF_Categorization/{prefix}_orf.tsv"
+        gtf = "results/ORF_Category/{prefix}_orf.gtf"
+    log: "logs/ORF_Category/{prefix}_orf.log"
+    benchmark: "benchmarks/ORF_Category/{prefix}_orf.tsv"
     conda: "envs/orf_categorization.yaml"
     script: "scripts/ORF_Categorization.R"
 
-# rule orf_identification:
-#     input: rules.sqanti3_rescue.output
-#     output: "results/ORF_identification/{prefix}.categorized.gtf"
+rule orf_filtration:
+    input:
+        gtf = rules.orf_categorization.output.gtf
+    output:
+        gtf = "results/ORF_Filter/{prefix}_orf.filter.gtf"
+    log: "logs/ORF_Filter/{prefix}_orf.filter.log"
+    benchmark: "benchmarks/ORF_Filter/{prefix}_orf.filter.tsv"
+    params:
+        keep_known_orf = keep_known_orf,
+        keep_novel_orf = keep_novel_orf,
+        keep_not_orf = keep_not_orf,
+        keep_hasCDS = keep_hasCDS
+    conda: "envs/orf_categorization.yaml"
+    script: "scripts/ORF_Filtration.R"
 
 ################################################################################
 ## Transcriptome completeness and filtration
@@ -278,32 +311,73 @@ rule orf_categorization:
 ################################################################################
 ## Endome Truncation
 ################################################################################
+filter_gtf_preTruncation = config["filter_gtf_preTruncation"]
+
+def select_gtf_preTruncation(filter_gtf_preTruncation = "none", gtf_correction_method = "none"):
+    if filter_gtf_preTruncation:
+        return rules.orf_filtration.output.gtf
+    else:
+        return select_gtf_correction_input(gtf_correction_method)
 
 ### The following rule was extracted and addapted from `txcutr-db` by Mayrlab: https://github.com/Mayrlab/txcutr-db
 rule gtxcutr_truncation:
     input: 
-        gtf = rules.sqanti3_rescue.output # "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
+        gtf = select_gtf_preTruncation(filter_gtf_preTruncation) # rules.gtf_completeness.output # "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
     output: 
-        gtf = "results/gtxcutr/{prefix}.gtxcutr.w{width}.gtf.gz",
-        fa = "results/gtxcutr/{prefix}.gtxcutr.w{width}.fa.gz",
-        tsv = "results/gtxcutr/{prefix}.gtxcutr.w{width}.merge.tsv"
-    log: "logs/gtxcutr/{prefix}.gtxcutr.w{width}.log"
-    benchmark: "benchmarks/gtxcutr/{prefix}.gtxcutr.w{width}.tsv"
+        gtf = "results/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.gtf",
+        fa = "results/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.fa",
+        transcript_overlap = "results/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.overlaps.tsv",
+        merge_table = "results/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.merge.tsv"
+    log: "logs/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.log"
+    benchmark: "benchmarks/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.tsv"
+    wildcard_constraints: 
+        txEnd = "\\dp"
     params:
         mergeDist = 200,
         genome = "hg38"
     conda: "envs/gtxcutr.yaml"
-    threads: 20
+    threads: 1
     script: "scripts/gtxcutr.R" # Modified `txcutr.R` script to include my version of the package
+
+rule txcutr_truncation:
+    input: 
+        gtf = select_gtf_preTruncation(filter_gtf_preTruncation) # rules.gtf_completeness.output # "results/Sqanti3_Rescue/{prefix}_rescued.gtf"
+    output: 
+        gtf = "results/txcutr/{prefix}.txcutr.w{width}.gtf.gz",
+        fa = "results/txcutr/{prefix}.txcutr.w{width}.fa.gz",
+        tsv = "results/gtxcutr/{prefix}.gtxcutr.w{width}.merge.tsv"
+    log: "logs/txcutr/{prefix}.txcutr.w{width}.log"
+    benchmark: "benchmarks/txcutr/{prefix}.txcutr.w{width}.tsv"
+    params:
+        mergeDist = 200,
+        genome = "hg38"
+    conda: "envs/txcutr.yaml"
+    threads: 24
+    script: "scripts/txcutr.R"
 
 rule kallisto_index:
     input:
         fa = rules.gtxcutr_truncation.output.fa
     output:
-        kdx = "results/gtxcutr/{prefix}.gtxcutr.w{width}.kdx"
-    log: "logs/kallisto/{prefix}.gtxcutr.w{width}.log"
-    benchmark: "benchmarks/kallisto/{prefix}.gtxcutr.w{width}.tsv"
+        kdx = "results/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.kdx"
+    log: "logs/kallisto/{prefix}.gtxcutr.w{width}.{txEnd}.log"
+    benchmark: "benchmarks/kallisto/{prefix}.gtxcutr.w{width}.{txEnd}.tsv"
     conda: "envs/kallisto.yaml"
     threads: 8
     shell:
         "kallisto index --threads {threads} -i {output.kdx} {input.fa} > {log} 2>&1"
+
+
+################################################################################
+## Endome Annotation
+################################################################################
+
+rule endome_annotation:
+    input:
+        gtf = rules.gtxcutr_truncation.output.gtf
+    output:
+        gtf = "results/Endome_Annotation/{prefix}.w{width}.annotated.gtf"
+    log: "logs/Endome_Annotation/{prefix}.gtxcutr.w{width}.log"
+    benchmark: "benchmarks/Endome_Annotation/{prefix}.gtxcutr.w{width}.tsv"
+    conda: "envs/r_scripts.yaml"
+    script: "scripts/Endome_Annotation.R"

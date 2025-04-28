@@ -1,22 +1,20 @@
-#!/usr/bin/env Rscript
-
 ## _________________________________________________
 ##
-## Transcript classification by ORF status
+## Script title
 ##
-## Aim: Complete the GTF with ORF information
+## Aim:
 ##
 ## Author: Guillermo Rocamora Pérez
 ##
 ## Contributors:
 ##
-## Date Created: 2025-03-26
+## Date Created: 2025-03-27
 ##
-## Copyright (c) Guillermo Rocamora Pérez, 2025
+## Copyright (c) Guillermo Rocamora Pérez, year
 ##
 ## Email: guillermorocamora@gmail.com
 ##
-## Latest version: v1.0 (2025-03-26)
+## Latest version: v1.0 (2025-03-27)
 ##
 ## _________________________________________________
 ##
@@ -26,6 +24,7 @@
 ##
 ## - Please contact guillermorocamora@gmail.com for further assistance.
 ## _________________________________________________
+
 
 ############################################################################## #
 # ---- 0. Setup ----
@@ -45,9 +44,8 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf",
-                 sq3_class = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/Sqanti3_Filter/sq3.annotated_RulesFilter_result_classification.txt"),
-    output = list(gtf = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/ORF_Category/sq3.annotated_orf.gtf"),
+    input = list(gtf = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr/sq3.annotated.gtxcutr.w500.gtf.gz"),
+    output = list(gtf = "results/Endome_Annotation/sq3.annotated.w500.annotated.gtf"),
     threads = 1
   )
 }
@@ -76,12 +74,14 @@ input_sq3_class_path <- snakemake@input$sq3_class
 output_gtf_path <- snakemake@output$gtf
 
 #### Create output directory
-dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
+# dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Script Parameters ----
+
 #----------------------------------------------------------------------------- #
 ## 0.4 User Input arguments ----
+
 #----------------------------------------------------------------------------- #
 ## 0.5 Helper Functions ----
 
@@ -109,16 +109,13 @@ sq3_isoforms <- sq3_class %>%
     coding != "coding" ~ "not-ORF",
     .default = "Unknown"
   )) %>%
-  dplyr::mutate(hasCDS = !is.na(ORF_length)) %>%
-  dplyr::select(isoform, ORF_cat, ORF_length, hasCDS)
+  dplyr::select(isoform, ORF_cat, ORF_length)
 
 #----------------------------------------------------------------------------- #
 ## 2.2 Define the transcript lists ----
 tx_known <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "known-ORF"]
 tx_novel <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "novel-ORF"]
 tx_not <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "not-ORF"]
-
-tx_cds <- sq3_isoforms$isoform[sq3_isoforms$hasCDS == T]
 
 #----------------------------------------------------------------------------- #
 ## 2.3 Map transcript ID to ORF Length ----
@@ -139,13 +136,12 @@ mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_known, "ORF_cat"
 mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_novel, "ORF_cat"] <- "novel-ORF"
 mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_not, "ORF_cat"] <- "not-ORF"
 
-mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_cds, "hasCDS"] <- "true"
-mcols(gtf)[gtf$type == "transcript" & !gtf$transcript_id %in% tx_cds, "hasCDS"] <- "false"
 
 #----------------------------------------------------------------------------- #
 ## 3.2 Add ORF Length ----
 mcols(gtf)$ORF_length <- NA
 mcols(gtf)[gtf$ORF_cat %in% c("known-ORF", "novel-ORF"), "ORF_length"] <- isoform_length[mcols(gtf)[gtf$ORF_cat %in% c("known-ORF", "novel-ORF"), "transcript_id"]]
+
 
 ############################################################################## #
 # ---- 4. Output the GTF ----
