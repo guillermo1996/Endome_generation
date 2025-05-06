@@ -1,0 +1,35 @@
+
+[build] loading fasta file results/gtxcutr/sq3.annotated.gtxcutr.w500.fa.gz
+[build] k-mer length: 31
+[build] warning: clipped off poly-A tail (longer than 10)
+        from 4882 target sequences
+[build] warning: replaced 1 non-ACGUT characters in the input sequence
+        with pseudorandom nucleotides
+KmerStream::KmerStream(): Start computing k-mer cardinality estimations (1/2)
+KmerStream::KmerStream(): Start computing k-mer cardinality estimations (1/2)
+KmerStream::KmerStream(): Finished
+CompactedDBG::build(): Estimated number of k-mers occurring at least once: 76633941
+CompactedDBG::build(): Estimated number of minimizer occurring at least once: 18748010
+CompactedDBG::filter(): Processed 138328493 k-mers in 312315 reads
+CompactedDBG::filter(): Found 76570582 unique k-mers
+CompactedDBG::filter(): Number of blocks in Bloom filter is 523866
+CompactedDBG::construct(): Extract approximate unitigs (1/2)
+CompactedDBG::construct(): Extract approximate unitigs (2/2)
+CompactedDBG::construct(): Closed all input files
+
+CompactedDBG::construct(): Splitting unitigs (1/2)
+
+CompactedDBG::construct(): Splitting unitigs (2/2)
+CompactedDBG::construct(): Before split: 867837 unitigs
+CompactedDBG::construct(): After split (1/1): 867837 unitigs
+CompactedDBG::construct(): Unitigs split: 4486
+CompactedDBG::construct(): Unitigs deleted: 0
+
+CompactedDBG::construct(): Joining unitigs
+CompactedDBG::construct(): After join: 826789 unitigs
+CompactedDBG::construct(): Joined 41961 unitigs
+[build] building MPHF
+[build] creating equivalence classes ... 
+[build] target de Bruijn graph has k-mer length 31 and minimizer length 23
+[build] target de Bruijn graph has 826789 contigs and contains 76638417 k-mers 
+

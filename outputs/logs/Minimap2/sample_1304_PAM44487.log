@@ -1,0 +1,11 @@
+[M::mm_idx_gen::97.277*1.98] collected minimizers
+[M::mm_idx_gen::118.953*2.91] sorted minimizers
+[M::main::118.953*2.91] loaded/built the index for 194 target sequence(s)
+[M::mm_mapopt_update::125.329*2.81] mid_occ = 767
+[M::mm_idx_stat] kmer size: 15; skip: 5; is_hpc: 0; #seq: 194
+[M::mm_idx_stat::128.180*2.77] distinct minimizers: 167225302 (35.42% are singletons); average occurrences: 6.036; average spacing: 3.071; total length: 3099750718
+[M::worker_pipeline::491.625*6.37] mapped 674759 sequences
+[M::worker_pipeline::576.964*6.55] mapped 184970 sequences
+[M::main] Version: 2.28-r1209
+[M::main] CMD: minimap2 -ax splice -uf --MD --secondary=no -k 15 -t 8 -o results/Minimap2/sample_1304_PAM44487.sam /home/grocamora/RytenLab-Research/Additional_files/GENCODE/GRCh38.primary_assembly.genome.fa /home/grocamora/RytenLab-Research/37-UTRome_pipeline/References/seqkit-subsample/seqkit_subsample_p1.0/subsample_sample_1304_PAM44487.fastq.gz
+[M::main] Real time: 577.710 sec; CPU: 3782.368 sec; Peak RSS: 18.538 GB

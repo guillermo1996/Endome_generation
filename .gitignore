@@ -9,3 +9,4 @@ logs/**
 
 .github/
 .template/
+.Rproj.user

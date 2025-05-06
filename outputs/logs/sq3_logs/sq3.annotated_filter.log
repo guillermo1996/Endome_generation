@@ -1,0 +1,74 @@
+Rscript (R) version 4.3.3 (2024-02-29)
+Output name not defined. All the outputs will have the prefix sq3.annotated
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+-------------------------------------------------
+
+ 	 Reading classification file
+
+--------------------------------------------------
+-------------------------------------------------
+
+ 	 Reading JSON file with rules to filter
+
+--------------------------------------------------
+-------------------------------------------------
+
+ 	 Performing filtering
+
+--------------------------------------------------
+-------------------------------------------------
+
+ 	 Writting results
+
+--------------------------------------------------
+
+-------------------------------------------------
+
+ 	 SQANTI3 Rules filter report
+
+--------------------------------------------------
+Loading required package: magrittr
+
+Reading Rules result classification table...
+Loading required package: ggplot2
+
+Generating common filter plots...
+
+`summarise()` has grouped output by 'structural_category'. You can override
+using the `.groups` argument.
+`summarise()` has grouped output by 'filter'. You can override using the
+`.groups` argument.
+`summarise()` has grouped output by 'filter'. You can override using the
+`.groups` argument.
+`summarise()` has grouped output by 'filter'. You can override using the
+`.groups` argument.
+Warning message:
+There were 2 warnings in `dplyr::mutate()`.
+The first warning was:
+ℹ In argument: `ism_type = `%>%`(...)`.
+ℹ In group 1: `filter = Before`.
+Caused by warning:
+! 1 unknown level in `f`: Multiple
+ℹ Run `dplyr::last_dplyr_warnings()` to see the 1 remaining warning. 
+`summarise()` has grouped output by 'filter'. You can override using the
+`.groups` argument.
+
+Writing report plots to PDF file...
+null device 
+          1 
+Write arguments to /home/grocamora/RytenLab-Research/38-Endome_generation/results/Sqanti3_Filter/sq3.annotated_params.txt...
+
+Running SQANTI3 filtering...
+
+/home/grocamora/RytenLab-Research/38-Endome_generation/.snakemake/conda/6ee566abfed1e78f3ea1fe9cb58c3456_/bin/Rscript /home/grocamora/RytenLab-Research/38-Endome_generation/resources/Sqanti3/src/utilities/filter/SQANTI3_rules_filter.R -c /home/grocamora/RytenLab-Research/38-Endome_generation/results/Sqanti3_QC/sq3.annotated_classification.txt -o sq3.annotated -d results/Sqanti3_Filter -j /home/grocamora/RytenLab-Research/38-Endome_generation/resources/Sqanti3/src/utilities/filter/filter_default.json -u /home/grocamora/RytenLab-Research/38-Endome_generation/resources/Sqanti3/src/utilities -e False
+Output written to: results/Sqanti3_Filter/sq3.annotated.filtered.gtf
