@@ -1,6 +1,9 @@
 results/**
+old_results/**
+older_results/**
 resources/**
-logs/**
+others/**
+data/**
 .snakemake
 .snakemake/**
 *.Rproj
