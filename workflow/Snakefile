@@ -45,7 +45,7 @@ rule all:
         sq3_recue = "results/Sqanti3_Rescue/sq3.annotated_rescued.gtf",
         truncated_3p_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w500.3p.gtf",
         truncated_5p_endome = "results/gtxcutr/sq3.annotated.gtxcutr.w300.5p.gtf",
-        truncated_txcutr_endome = "results/txcutr/sq3.annotated.txcutr.w500.gtf"
+        #truncated_txcutr_endome = "results/txcutr/sq3.annotated.txcutr.w500.gtf"
         
 ################################################################################
 ## Alignment & Sorting

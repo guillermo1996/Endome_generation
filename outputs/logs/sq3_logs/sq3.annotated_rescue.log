@@ -133,16 +133,16 @@ In check_tag_present(c(gene_name, transcript_version, gene_version),  :
   Tags transcript_version are absent from the attribute field.
  These tags are ignored.
 
-[M::mm_idx_gen::16.065*1.53] collected minimizers
-[M::mm_idx_gen::18.856*1.74] sorted minimizers
-[M::main::18.940*1.74] loaded/built the index for 342008 target sequence(s)
-[M::mm_mapopt_update::19.139*1.73] mid_occ = 500
+[M::mm_idx_gen::16.589*1.51] collected minimizers
+[M::mm_idx_gen::19.594*1.73] sorted minimizers
+[M::main::19.666*1.72] loaded/built the index for 342008 target sequence(s)
+[M::mm_mapopt_update::19.906*1.72] mid_occ = 500
 [M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 342008
-[M::mm_idx_stat::19.204*1.73] distinct minimizers: 4075633 (0.21% are singletons); average occurrences: 15.915; average spacing: 10.129; total length: 656969217
-[M::worker_pipeline::44.967*2.45] mapped 8556 sequences
+[M::mm_idx_stat::19.969*1.71] distinct minimizers: 4075633 (0.21% are singletons); average occurrences: 15.915; average spacing: 10.129; total length: 656969217
+[M::worker_pipeline::46.053*2.43] mapped 8556 sequences
 [M::main] Version: 2.28-r1209
 [M::main] CMD: minimap2 --secondary=yes -ax map-hifi results/Sqanti3_Rescue/sq3.annotated_rescue_targets.fasta results/Sqanti3_Rescue/sq3.annotated_rescue_candidates.fasta
-[M::main] Real time: 45.110 sec; CPU: 110.096 sec; Peak RSS: 2.283 GB
+[M::main] Real time: 46.326 sec; CPU: 112.212 sec; Peak RSS: 2.334 GB
 Rscript (R) version 4.3.3 (2024-02-29)
 
 Attaching package: ‘dplyr’

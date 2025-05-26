@@ -13,8 +13,8 @@ ref_annotation: "/home/grocamora/RytenLab-Research/Additional_files/GENCODE/genc
 
 ################################################################################
 ## Input samples
-input_dir: "/home/grocamora/RytenLab-Research/37-UTRome_pipeline/References/seqkit-subsample/seqkit_subsample_p1.0"
-input_metadata: /home/grocamora/RytenLab-Research/36-UTRome_generation/Data/public_data/Ebbert_2023/sample_metadata.tsv
+input_dir: "/home/grocamora/RytenLab-Research/38-Endome_generation/data/Ebbert_2023/seqkit_subsample_p1.0"
+input_metadata: /home/grocamora/RytenLab-Research/38-Endome_generation/data/Ebbert_2023/sample_metadata.tsv
 use_controls_as_input: True
 
 input_samples:
