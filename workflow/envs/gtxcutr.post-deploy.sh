@@ -1,4 +1,4 @@
 #!env bash
 set -o pipefail
 
-R CMD INSTALL /home/grocamora/tools/gtxcutr/
+R CMD INSTALL /home/drihome/MRGuillermoPerez/tools/gtxcutr

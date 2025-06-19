@@ -45,9 +45,10 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf",
-                 sq3_class = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/Sqanti3_Filter/sq3.annotated_RulesFilter_result_classification.txt"),
-    output = list(gtf = "/home/grocamora/RytenLab-Research/38-Endome_generation/results/ORF_Category/sq3.annotated_orf.gtf"),
+    input = list(gtf = "~/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf",
+                 ref_annotation = "~/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf",
+                 sq3_class = "~/RytenLab-Research/38-Endome_generation/results/03-Sqanti3/Sqanti3_Filter/sq3.annotated_RulesFilter_result_classification.txt"),
+    output = list(gtf = "~/RytenLab-Research/38-Endome_generation/results/04-ORF_Filtration/ORF_Category/sq3.annotated_orf.gtf"),
     threads = 1
   )
 }
@@ -66,10 +67,10 @@ options(readr.show_col_types = F)
 
 #----------------------------------------------------------------------------- #
 ## 0.2 Script Paths ----
-main_path <- "/home/grocamora/RytenLab-Research/38-Endome_generation" # here::here()
 
 ### Input Paths
 input_gtf_path <- snakemake@input$gtf
+input_reference_gtf_path <- snakemake@input$ref_annotation
 input_sq3_class_path <- snakemake@input$sq3_class
 
 ### Output Paths
@@ -88,6 +89,7 @@ dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
 ############################################################################## #
 # ---- 1. Load transcriptome and SQ3 Classification ----
 gtf <- rtracklayer::import.gff(input_gtf_path)
+annotation_gtf <- rtracklayer::readGFF(input_reference_gtf_path)
 sq3_class <- readr::read_delim(input_sq3_class_path)
 
 
@@ -103,29 +105,46 @@ sq3_class <- readr::read_delim(input_sq3_class_path)
 ### documentation:
 ### https://github.com/ConesaLab/SQANTI3/wiki/SQANTI3-isoform-classification:-categories-and-subcategories
 sq3_isoforms <- sq3_class %>%
-  dplyr::mutate(ORF_cat = dplyr::case_when(
+  dplyr::mutate(sq3_type = dplyr::case_when(
     structural_category == "full-splice_match" & coding == "coding" ~ "known-ORF",
     structural_category != "full-splice_match" & coding == "coding" ~ "novel-ORF",
     coding != "coding" ~ "not-ORF",
     .default = "Unknown"
   )) %>%
-  dplyr::mutate(hasCDS = !is.na(ORF_length)) %>%
-  dplyr::select(isoform, ORF_cat, ORF_length, hasCDS)
+  dplyr::mutate(hasCDS = !is.na(ORF_length),
+                in_ref = !is.na(ref_length)) %>%
+  dplyr::select(isoform, sq3_type, ORF_length, in_ref, hasCDS, associated_gene)
+
+### GR: Load GENCODE annotations for gene and transcript types
+annotation_genes <- annotation_gtf %>%
+  dplyr::filter(type == "gene") %>%
+  dplyr::select(gene_id, gene_type) %>%
+  dplyr::mutate(gene_id = gsub("\\..*", "", gene_id))
+
+annotation_transcripts <- annotation_gtf %>%
+  dplyr::filter(type == "transcript") %>%
+  dplyr::select(transcript_id, transcript_type) %>%
+  dplyr::mutate(transcript_id = gsub("\\..*", "", transcript_id))
+
+isoform_types <- sq3_isoforms %>%
+  dplyr::mutate(clean_iso = gsub("\\..*", "", isoform),
+                clean_gene = gsub("\\..*", "", associated_gene)) %>%
+  dplyr::left_join(annotation_genes, by = c("clean_gene" = "gene_id")) %>%
+  dplyr::left_join(annotation_transcripts, by = c("clean_iso" = "transcript_id")) %>%
+  dplyr::select(isoform, associated_gene, in_ref, hasCDS, ORF_length, sq3_type, ref_tx_type = transcript_type, ref_gene_type = gene_type)
 
 #----------------------------------------------------------------------------- #
-## 2.2 Define the transcript lists ----
-tx_known <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "known-ORF"]
-tx_novel <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "novel-ORF"]
-tx_not <- sq3_isoforms$isoform[sq3_isoforms$ORF_cat == "not-ORF"]
+## 2.2 Map transcript ID to ORF Length ----
 
-tx_cds <- sq3_isoforms$isoform[sq3_isoforms$hasCDS == T]
+### GR: Set-up a dictionary to convert transcript id to the different other
+### columns of interest
+isoform_length <- isoform_types %>% dplyr::select(isoform, ORF_length) %>% tibble::deframe()
 
-#----------------------------------------------------------------------------- #
-## 2.3 Map transcript ID to ORF Length ----
-
-### GR: Set-up a dictionary to convert transcript id to ORF length. This metric
-### might be useful in future modules.
-isoform_length <- sq3_isoforms %>% dplyr::select(isoform, ORF_length) %>% tibble::deframe()
+isoform_in_ref <- isoform_types %>% dplyr::select(isoform, in_ref) %>% tibble::deframe()
+isoform_hasCDS <- isoform_types %>% dplyr::select(isoform, hasCDS) %>% tibble::deframe()
+isoform_sq3_type <- isoform_types %>% dplyr::select(isoform, sq3_type) %>% tibble::deframe()
+isoform_ref_tx_type <- isoform_types %>% dplyr::select(isoform, ref_tx_type) %>% tibble::deframe()
+isoform_ref_gene_type <- isoform_types %>% dplyr::select(isoform, ref_gene_type) %>% tibble::deframe()
 
 
 ############################################################################## #
@@ -133,19 +152,18 @@ isoform_length <- sq3_isoforms %>% dplyr::select(isoform, ORF_length) %>% tibble
 
 #----------------------------------------------------------------------------- #
 ## 3.1 Add ORF Category ----
-mcols(gtf)$ORF_cat <- NA
-
-mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_known, "ORF_cat"] <- "known-ORF"
-mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_novel, "ORF_cat"] <- "novel-ORF"
-mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_not, "ORF_cat"] <- "not-ORF"
-
-mcols(gtf)[gtf$type == "transcript" & gtf$transcript_id %in% tx_cds, "hasCDS"] <- "true"
-mcols(gtf)[gtf$type == "transcript" & !gtf$transcript_id %in% tx_cds, "hasCDS"] <- "false"
+mcols(gtf)[gtf$type == "transcript", "in_ref"] <- isoform_in_ref[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
+mcols(gtf)[gtf$type == "transcript", "hasCDS"] <- isoform_hasCDS[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
 
 #----------------------------------------------------------------------------- #
 ## 3.2 Add ORF Length ----
-mcols(gtf)$ORF_length <- NA
-mcols(gtf)[gtf$ORF_cat %in% c("known-ORF", "novel-ORF"), "ORF_length"] <- isoform_length[mcols(gtf)[gtf$ORF_cat %in% c("known-ORF", "novel-ORF"), "transcript_id"]]
+mcols(gtf)[gtf$type == "transcript", "ORF_length"] <- isoform_length[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
+
+#----------------------------------------------------------------------------- #
+## 3.3 Add Transcript Categories Category ----
+mcols(gtf)[gtf$type == "transcript", "sq3_type"] <- isoform_sq3_type[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
+mcols(gtf)[gtf$type == "transcript", "ref_tx_type"] <- isoform_ref_tx_type[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
+mcols(gtf)[gtf$type == "transcript", "ref_gene_type"] <- isoform_ref_gene_type[mcols(gtf)[gtf$type == "transcript", "transcript_id"]]
 
 ############################################################################## #
 # ---- 4. Output the GTF ----

@@ -18,15 +18,15 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-      input=list(gtf="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf"),
-      output=list(gtf="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.gtf",
-                  fa="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.fa",
-                  transcript_overlap="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.overlaps.tsv",
-                  merge_table="/home/grocamora/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.merge.tsv"),
+      input=list(gtf="~/RytenLab-Research/38-Endome_generation/results/ORF_Filter/sq3.annotated_orf.filter.gtf"),
+      output=list(gtf="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.gtf",
+                  fa="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.fa",
+                  transcript_overlap="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.overlaps.tsv",
+                  merge_table="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.merge.tsv"),
       params=list(mergeDist="200", genome="hg38"),
       wildcards=list(width="500", txEnd="3p"),
-      log = list("/home/grocamora/RytenLab-Research/38-Endome_generation/logs/gtxcutr/sq3.annotated.w500.3p.log"),
-      threads=1
+      log = list("~/RytenLab-Research/38-Endome_generation/results/gtxcutr.log"),
+      threads=8
   )
 }
 
@@ -40,11 +40,14 @@ library(GenomicFeatures)
 library(BiocParallel)
 library(magrittr)
 
+require(txdbmaker)
+
 ## convert arguments
 maxTxLength <- as.integer(snakemake@wildcards$width)
 txEnd <- snakemake@wildcards$txEnd
 minDistance <- as.integer(snakemake@params$mergeDist)
 overlap_path <- snakemake@output$transcript_overlap
+
 ## load genome
 bsg <- getBSgenome(snakemake@params$genome)
 
@@ -62,6 +65,8 @@ txdb <- makeTxDbFromGFF(file=snakemake@input$gtf, organism=organism(bsg))
 txdb <- keepStandardChromosomes(txdb, pruning.mode="coarse")
 seqlevelsStyle(txdb) <- "UCSC"
 
+# overlap_path is optional
+# txEnd is optional. Defaults to 3' truncation
 txdb_result <- truncateTxome(txdb, maxTxLength = maxTxLength, overlap_path = overlap_path, txEnd = txEnd)
 
 print("Export GTF")

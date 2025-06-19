@@ -3,5 +3,7 @@ channels:
   - conda-forge
   - bioconda
   - defaults
+  - merv
 dependencies:
-  - kallisto=0.51.1
+  - merv::kallisto=0.46.2sq
+  - bustools=0.40.0

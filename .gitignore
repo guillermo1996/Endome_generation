@@ -1,6 +1,5 @@
 results/**
-old_results/**
-older_results/**
+results**
 resources/**
 others/**
 data/**
@@ -10,6 +9,11 @@ data/**
 .Rproj.user/**
 **.html
 
+R/Others
+R/Results
+
 .github/
 .template/
 .Rproj.user
+.Rhistory
+tests

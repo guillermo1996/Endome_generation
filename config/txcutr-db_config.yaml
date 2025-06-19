@@ -1,3 +1,0 @@
-tmpdir: "tmp/"
-cellranger: "~/tools"
-genome_map: "resources/txcutr-db/metadata/genome_map.tsv"

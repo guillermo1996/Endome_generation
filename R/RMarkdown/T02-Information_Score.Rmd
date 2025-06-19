@@ -1,0 +1,478 @@
+---
+title: |
+  | Test 02 - Information Score
+subtitle: |
+  | Endome Generation Pipeline
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL - Version 1.1
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+  md_document:
+    variant: markdown_github
+    toc: true
+    number_sections: true
+always_allow_html: true
+link-citations: true
+notes-after-punctuation: false
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/dependent/jhep-reports.csl
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{R setup, echo = F, message = F, warning = F}
+# Load libraries
+library(BiocParallel)
+library(rtracklayer)
+library(plyranges)
+library(GenomicFeatures)
+library(ggtranscript)
+library(igraph)
+library(Biostrings)
+library(pwalign)
+library(tidyverse)
+
+# Define main path
+main_path <- file.path("~/RytenLab-Research/38-Endome_generation")# here::here()
+script_path <- file.path(main_path, "R")
+
+# Source helper functions
+source(file.path(script_path, "R/hf_graph_and_themes.R"))
+source(file.path(script_path, "R/hf_notebooks.R"))
+source(file.path(script_path, "R/Phf-Endome/hf_sim_score.R"))
+
+# Set options
+knitr::opts_chunk$set(echo = T, warning = F, message = F, out.width="100%", 
+                      fig.align = "center", dpi = 300, 
+                      fig.height = 7.2, fig.width = 7.2)
+```
+
+```{r setup-theme, echo = F, results = "asis"}
+## Custom sciRmdTheme with increased width.
+## Please ask guillermorocamora@gmail.com for more details.
+## Download from devtools::install_github("https://github.com/guillermo1996/grpSciRmdTheme")
+if(require(grpSciRmdTheme)){
+  grpSciRmdTheme::set.theme(
+    theme = "default",
+    color = NULL,
+    header.sticky = FALSE,
+    list.group.icon = "arrow",
+    font.family = "Arial",
+    font.color = "black",
+    header.color = "darkblue",
+    figure.perc = 100
+  )
+}
+
+## A bug in recent versions of KableExtra requires to load the HTML classes in
+## some circumstances.
+kableExtra::html_dependency_lightable()
+
+## Custom styles for the output html
+cat('
+<style type="text/css">
+</style>')
+```
+
+# Introduction
+
+This report presents an analysis of transcript binning and similarity scoring in the context of the *Endome* generation pipeline. The main goal is to evaluate the effectiveness of the binning strategy developed by `scUTRquant` and to assess the biological relevance of the resulting transcript groups.
+
+The report consists in the following sections:
+
+```{r}
+# Define main path
+main_path <- file.path("~/RytenLab-Research/38-Endome_generation")# here::here()
+script_path <- file.path(main_path, "R")
+
+## Input paths
+original_gtf_path <- file.path(main_path, "results/ORF_Filter/sq3.annotated_orf.filter.gtf")
+
+merge_3p_path <- file.path(main_path, "results/gtxcutr/sq3.annotated.gtxcutr.w500.3p.merge.tsv")
+truncated_3p_gtf_path <- file.path(main_path, "results/gtxcutr/sq3.annotated.gtxcutr.w500.3p.gtf")
+
+tx_tbl_path <- function(utr_site) file.path(script_path, paste0("Results/Table_mapping_", utr_site, "/tx_tbl.rds"))
+orf_tbl_path <- function(utr_site) file.path(script_path, paste0("Results/Table_mapping_", utr_site, "/orf_tbl.rds"))
+
+simScore_results_path <- function(utr_site = "3p") file.path(script_path, paste0("Results/SimScore_Simulations_", utr_site))
+simScore_path <- function(file_prefix, seed = "", utr_site = "3p"){
+  if(seed != "") seed <- paste0("_s", seed)
+  return(file.path(simScore_results_path(utr_site), paste0(file_prefix, "_SimScore", seed, ".rds")))
+}
+
+## Output paths
+issue_nodes_path <- file.path(script_path, "Results/Transcript_binning/issue_nodes.rds")
+
+dir.create(dirname(issue_nodes_path), recursive = F, showWarnings = F)
+```
+
+## Changelog {.tabset -}
+
+### v1.1 (11/06/2025) {-}
+
++ Improved all visualizations.
+
++ Improved explanations
+
++ Updated results for the complete Ebbert 2023 dataset.
+
+### v1.0 (04/06/2025) {-}
+
++ Initial release.
+
++ Added `MMeseqs2` and `pairwiseAlignment` methods.
+
++ Added bin similarity visualizations.
+
++ Added transcript binning issue.
+
+# Transcript to Bin pipeline
+
+The pipeline for generating transcript bins begins with raw long-read RNAseq data and proceeds with these steps:
+
+1. **Transcriptome generation (overview)**: the FASTQ files are aligned to the reference genome using `minimap2`, with `samtools` employed to sort the resulting alignments. Transcript structures are reconstructed using `StringTie` in an unguided assembly mode. This allows for the discovery of novel transcripts without relying on existing annotations. This initial assembly of the each sample is then merged using `StringTie` with a guided approach to the reference *GENCODE v48*. This integrates known gene models to improve accuracy and completeness.
+From the merged transcriptome, only transcripts mapping to standard chromosomes are retained. Next, `Sqanti3` is run to filter out artifact transcripts, while also applying their Open Reading Frame called (this ORF caller will be modified in future iterations of the software). Only transcripts classified as protein-coding by `Sqanti3` are then employed for the following steps.
+2. **Transcript Truncation**: the set of transcripts undergoes truncation, where the first or last *n* nucleotides are extracted from each transcript: 300 nt from the 5' end or 500 nt from the 3' end. Note that multiple transcripts may map to a single truncated transcripts if they share the identical coordinates after truncation.
+3. **Transcript Binning**: next phase is the grouping (or binning) of the truncated transcripts. This binning process is necessary because of the following reasons:
+    + Some transcripts perfectly overlap after the truncation process, becoming completely indistinguishable from the 3' or 5' end.
+    + Due to the *kallisto* quantification performed by *scUTRquant* in the pseudo-alignment, there is an intrinsic error rate caused by the overlapping isoforms. To mitigate this issue, Mervin Fansler estimated with simulations the error rate fo the quantification for any given overlap between isoforms, and decided on a threshold to minimize this error. They chose 200bp as this threshold, meaning that any two truncated transcripts which overlaps by at least 200bp will be collapsed into the same bin. Each bin is represented by the more downstream transcript in case of 3' truncation, and the more upstream transcript for 5' truncation. 
+    
+This pipeline ensures that only high-confidence, protein-coding transcripts are analyzed. The result is a set of bins that are both biologically meaningful and suitable for downstream analyses. Note that in future iterations of this study, non-coding transcripts will also be employed in the pseudo-alignment, through their implementation is still in development.
+
+## Truncation includes the coding sequence issue
+
+**Section in development**
+
+## Bin overlap issue
+
+```{r}
+# Load the needed data
+original_gtf <- rtracklayer::import(original_gtf_path)
+merge_3p_df <- vroom::vroom(merge_3p_path)
+truncated_3p_gtf <- rtracklayer::import(truncated_3p_gtf_path)
+
+# Handle the chain relationship as a directed graph to ease with the selection
+g <- igraph::graph_from_data_frame(merge_3p_df %>% dplyr::select(tx_in, tx_out), directed = T)
+g <- igraph::simplify(g)
+
+all_nodes <- V(g)$name
+is_terminal <- degree(g, mode = "out") == 0
+terminal_nodes <- all_nodes[is_terminal]
+
+# Load the results from disk if available
+if(file_test("-f", issue_nodes_path)){
+  issue_nodes <- readRDS(issue_nodes_path)
+}else{
+  # Split the terminal nodes into different clusters to improve parallelization
+  n_threads <- 16
+  thread_groups <- split(terminal_nodes, ceiling(seq_along(terminal_nodes)/(length(terminal_nodes)/(n_threads*4))))
+
+  iter_results <- BiocParallel::bplapply(thread_groups, function(group){
+    group_results <- lapply(group, function(node){
+      input_nodes <- subcomponent(g, node, mode = "in")$name
+      
+      if(length(input_nodes) <= 2) return(NA)
+      
+      input_txs <- truncated_3p_gtf %>% plyranges::filter(transcript_id %in% input_nodes, type == "transcript")
+      mismatch <- sum(queryHits(GenomicRanges::findOverlaps(input_txs, drop.redundant = T)) == 1) < length(input_txs)
+      
+      if(!mismatch) return(NA)
+      
+      return(input_nodes[[1]])
+    })
+    
+    return(unlist(group_results))
+  }, BPPARAM = BiocParallel::MulticoreParam(workers = n_threads, progressbar = T))
+  issue_nodes <- unname(unlist(iter_results)) %>% .[!is.na(.)]
+  
+  issue_nodes %>%  saveRDS(issue_nodes_path)
+}
+```
+
+
+Current binning strategy develop by Mervin Fansler in the R package `txcutr` is based on sequential grouping of transcripts that overlap by more than 200bp. This can cause a chain effect that groups truncated transcripts that not directly overlap.
+
+For example, let's say that we have transcripts `A`, `B` and `C`. If transcript `A` overlaps transcript `B`, and transcript `B` overlaps transcript `C`, then all three transcripts are placed in the same bin, even if `A` does not overlap `C` directly.
+
+This situation is better understood by looking at the following figure. Here, each row correspond to a transcript with grey segments indicating the original exon structure, and orange segments for the truncated versions. We can look at the transcripts A, F and H (naming on the right axis), where transcript `A` does not overlap with transcript `F`, but they both overlap transcript `H`. Thus, by propagating the binning chain, they end un in the same bin, defined by transcript `A`. 
+
+This can be better understood by looking at the following figure. Here, each row correspond to a transcripts with grey segments indicating the original exon structure and orange segments for the truncated versions. We can look at transcripts A, F and H (naming on the right axis). Transcript `A` does not overlap with transcript `E`, but they both overlap transcript `F`. Thus, by propagating the binning chain, they end up in the same bin, defined by transcript `A`.
+
+```{r, fig.width=11, fig.height=8}
+# Set the nodes
+terminal_node <- issue_nodes[[1]]
+input_nodes <- subcomponent(g, terminal_node, mode = "in")$name
+
+# Extract information of the transcripts
+og_transcripts <- original_gtf %>% 
+  plyranges::filter(transcript_id %in% input_nodes, type == "exon") %>% 
+  tibble::as_tibble() %>% dplyr::mutate(status = "Original")
+tr_transcripts <- truncated_3p_gtf %>% 
+  plyranges::filter(transcript_id %in% input_nodes, type == "exon") %>% 
+  tibble::as_tibble() %>% dplyr::mutate(status = "Truncated")
+merged_transcripts <- dplyr::bind_rows(og_transcripts, tr_transcripts)
+
+# Rescale the coordinates for better representation
+merged_rescaled <- ggtranscript::shorten_gaps(
+  merged_transcripts,
+  ggtranscript::to_intron(merged_transcripts, c("transcript_id", "status")),
+  group_var = c("transcript_id", "status")
+) %>% 
+  dplyr::mutate(transcript_id = forcats::fct_rev(forcats::fct_inorder(transcript_id)))
+
+# Define labels to ease with interpretation
+tx_labels <- levels(merged_rescaled$transcript_id)
+tx_alt_labels <- rev(LETTERS[1:length(tx_labels)])
+
+# Draw the plots
+merged_rescaled %>% 
+  dplyr::filter(type == "exon") %>% 
+  ggplot(aes(xstart = start, xend = end, y = as.numeric(transcript_id), fill = status)) +
+  geom_half_range(range.orientation = "top", data = dplyr::filter(merged_rescaled, type == "exon", status == "Original")) +
+  geom_half_range(range.orientation = "bottom", data = dplyr::filter(merged_rescaled, type == "exon", status == "Truncated")) +
+  scale_fill_manual(name = "Transcript Status", values = c("Original" = "gray", "Truncated" = "orange")) +
+  geom_intron(data = dplyr::filter(merged_rescaled, type == "intron", status == "Original"), aes(strand = strand)) +
+  scale_y_continuous(breaks = 1:length(tx_labels), labels = tx_labels, 
+                     sec.axis = sec_axis(~., labels = tx_alt_labels, breaks = 1:length(tx_alt_labels))) +
+  ggtitle(paste0("Binned transcripts to ", terminal_node)) +
+  labs(y = "Transcript ID", x = "Rescaled Genomic Coordinates") +
+  theme_bw()
+```
+
+This issue is likely to propagate noise and might be problematic for some complex genes. Do note that frequency of these events is really low, at approximately 0.05% of the binned transcripts.
+
+
+<details>
+<summary>Expand to see the same graph with CDS information displayed:</summary>
+<br>
+```{r, fig.width=11, fig.height=8}
+# Set the nodes
+og_exons <- original_gtf %>% 
+  plyranges::filter(transcript_id %in% input_nodes, type == "exon") %>% 
+  tibble::as_tibble() %>% dplyr::mutate(status = "UTRs")
+og_cds <- original_gtf %>% 
+  plyranges::filter(transcript_id %in% input_nodes, type == "CDS") %>% 
+  tibble::as_tibble() %>% dplyr::mutate(status = "CDSs")
+tr_transcripts <- truncated_3p_gtf %>% 
+  plyranges::filter(transcript_id %in% input_nodes, type == "exon") %>% 
+  tibble::as_tibble() %>% dplyr::mutate(status = "Truncated")
+merged_types <- dplyr::bind_rows(og_exons, og_cds, tr_transcripts)
+
+merged_rescaled <- ggtranscript::shorten_gaps(
+  merged_types,
+  ggtranscript::to_intron(merged_types, c("transcript_id", "status")),
+  group_var = c("transcript_id", "status")
+) %>% 
+  dplyr::mutate(transcript_id = forcats::fct_rev(forcats::fct_inorder(transcript_id)))
+
+tx_labels <- levels(merged_rescaled$transcript_id)
+tx_alt_labels <- rev(LETTERS[1:length(tx_labels)])
+
+merged_rescaled %>%
+  dplyr::filter(type == "exon") %>%
+  ggplot(aes(xstart = start, xend = end, y = as.numeric(transcript_id), fill = status)) +
+  geom_half_range(range.orientation = "top", data = dplyr::filter(merged_rescaled, type == "exon", status == "UTRs"), height = 0.15) +
+  geom_half_range(range.orientation = "top", data = dplyr::filter(merged_rescaled, type == "CDS", status == "CDSs")) +
+  geom_half_range(range.orientation = "bottom", data = dplyr::filter(merged_rescaled, type == "exon", status == "Truncated"), height = 0.15) +
+  scale_fill_manual(name = "Transcript Status", values = c("UTRs" = "gray", "CDSs"= "#ac39ff", "Truncated" = "orange")) +
+  geom_intron(data = dplyr::filter(merged_rescaled, type == "intron", status == "UTRs"), aes(strand = strand)) +
+  scale_y_continuous(breaks = 1:length(tx_labels), labels = tx_labels, 
+                     sec.axis = sec_axis(~., labels = tx_alt_labels, breaks = 1:length(tx_alt_labels))) +
+  ggtitle(paste0("Binned transcripts to ", terminal_node, " - with CDS information")) +
+  labs(y = "Transcript ID", x = "Rescaled Genomic Coordinates") +
+  theme_bw()
+```
+
+# Open Reading Frame Similarity Score
+
+The Open Reading Frame (ORF) similarity score aims to quantify the degree of amino acid similarity within each of the bins. This metric is crucial to better understand the functional coherence of each of the bins. A bin containing transcripts that produce highly similar proteins suggest a clear biological function, while a bin with diverse protein products complicates its interpretation. The quality or function of the specific open reading frames is not a factor in the current studies, but later approaches may include this information.
+
+## Software Solutions
+
+### MMseqs2
+
+`MMseqs2` (Many-against-Many sequence searching) is an fast and scalable suite for searching and clustering large protein or nucleotide datasets. It can achieve the same sensitivity as BLAST, but optimized to run much faster. An example of the pipeline to generate intra-bin similarity is:
+
+```{bash, eval = F, class.source = 'fold-show'}
+# 1. Create sequence database for the bin
+mmseqs createdb bin_1.fa bin.db
+
+# 2. Perform all-vs-all alignment with sensitive parameters
+mmseqs search bin_db bin_db bin_align tmp \
+    --min-seq-id 0 \
+    --max-seqs 1000 \
+    --max-accept 1000000
+
+# 3. Convert alignment results to tabular format
+mmseqs convertalis bin_db bin_db bin_align bin_similarity.tsv \
+    --format-output "query,target,pident,raw,evalue" \
+    --format-mode 4
+```
+
+The main issue with `MMseqs2` that made this not suitable for our purposes is the lack in results if the protein sequences are too different, as there seems to be an internal threshold that limits the minimum scoring to be presented in the results. A deeper look into its documentation might reveal the correct parameter to modify.
+
+Its main advantage is the ability to cluster ORF sequences by similarity, providing a valuable metric that could be included in the final information score. Bins with many open reading frames that are alike would report less clusters than those with many different open reading frames, and this information could be integrated in the similarity score or the overall information score. This approach would require more study. 
+
+### Alignment with `pwalign::pairwiseAligment`
+
+For a more interpretable similarity metric focused on smaller bins, we decided to run the function `pairwiseAlignment` from the R package `pwalign`. The function aligns a set of pattern strings against a subject, reporting the pairing that maximizes an internal scoring function. This scoring function depends of mostly three parameters: i) gap opening penalty, ii) gap extension penalty and iii) substitution matrix. The recommended values for these parameters are extracted from the software `BLAST`, an alignment tool standard in protein sequence comparisons.
+
+Here is the example code to run a pairwise alignment between two protein sequences:
+
+```{r, eval = F, class.source = 'fold-show'}
+# 1. Example of optimal pairwise alignment parameters
+alignment <- pwalign::pairwiseAlignment(
+    pattern = aa_seq1,  # First protein sequence
+    subject = aa_seq2,  # Second protein sequence
+    substitutionMatrix = "BLOSUM62",  # Standard matrix for protein alignment
+    gapOpening = 11,   # Penalty for opening a gap
+    gapExtension = 1, # Penalty for extending a gap
+    scoreOnly = FALSE   # Return alignment details
+)
+
+# 2. Extract percent of sequence identity
+pwalign::pid(aligment)
+```
+
+There are different metrics that can be extracted from the alignment object (more information in their [documentation](https://bioconductor.org/packages//2.10/bioc/vignettes/Biostrings/inst/doc/PairwiseAlignments.pdf)), but the two main outputs are:
+
+- **Score**: raw alignment score determined by the substitution matrix (*BLOSUM62*) and gap penalties. It is not normalized, so hard to compare across different sequence lengths unless rescaled.
+- **Percentage of Sequence Identity (pid)**: proportion of exactly matching positions in the aligned regions. It is already length-normalized (to the shortest sequence), which is useful for interpretability. It can be misleading if the protein sequences are short.
+
+In this first iteration, the reported parameter is the average *pid* for each bin, reporting the standard deviation as a measure of how spread this values are. In the future, normalization techniques for the scoring metric could also be employed.
+
+## Intra-bin ORF Similarity (3' UTR)
+
+This section focuses on the core characteristic of the Information Score: how much biological information is contained in each bin?
+
+There are many different approaches to answer this question: ORF sequence uniqueness, overlaps with conserved protein domains, functional annotation, etc. In this first iteration of the project, the main component will be a simple pairwise similarity score between each of the ORF than conform the bin. For this purpose, we employ the `pwalign::pairwiseAlignment()` described in the previous section.
+
+### Measure the similarity score across bins
+
+The pipeline to generate the intra-bin similarity scores is the following:
+
+0. (Parallelization) Split the bins into clusters to better optimize for parallel execution. Each cluster will be processed by a single thread. 
+1. For each bin, generate all possible combinations of Open Reading Frames without redundancy nor self-comparison. 
+2. For each combination, calculate the **percentage sequence identity (pid)** between the two open reading frames.
+3. Average the **pid** and extract its standard deviation. These values represent the similarity score of the bin.
+
+```{r}
+tx_tbl <- readRDS(tx_tbl_path("3p"))
+orf_tbl <- readRDS(orf_tbl_path("3p"))
+
+default_simScore_path <- simScore_path(file_prefix = "notRandom")
+n_threads <- 32
+if(!file_test("-f", default_simScore_path)){
+  # Split the transcript table into bin groups for parallel processing
+  bin_list <- tx_tbl %>%
+    dplyr::select(bin_id, orf_id, orf_seq) %>%
+    split(., .$bin_id)
+  
+  # Further split the bins into clusters to optimized the execution.
+  bin_cluster <- split(bin_list, ceiling(seq_along(bin_list)/(length(bin_list)/(n_threads*2))))
+  
+  default_simScore <- BiocParallel::bplapply(bin_cluster, function(bin_cluster_i){
+    cluster_results <- lapply(bin_cluster_i, measure_seq_similarity, type = "global") %>% dplyr::bind_rows()
+    
+    return(cluster_results)
+  }, BPPARAM = BiocParallel::MulticoreParam(workers = n_threads, progressbar = T, stop.on.error = T)) %>%
+    dplyr::bind_rows()
+
+  default_simScore %>% saveRDS(default_simScore_path)
+}else{
+  default_simScore <- readRDS(default_simScore_path)
+}
+
+simScore_3p <- default_simScore %>% dplyr::mutate(UTR = "3'")
+simScore_5p <- readRDS(simScore_path(file_prefix = "notRandom", utr_site = "5p")) %>% dplyr::mutate(UTR = "5'")
+```
+
+**Known Issues:**
+
++ (Minor) Self-comparisons (always reported a $pid=1$) are removed from the similarity score calculation in bins with more than one Open Reading Frame. However, if the bin only has a single Open Reading Frame, then the similarity score is assigned to 1, as if we were measuring a self-comparison.
++ (Minor) The computational time of the function is proportional to the ORF lengths. This means that for some incredibly long Open Reading Frames this alignment takes a very long time to compute. While mean length of the Open Reading Frames is ~195 amino acids, there are some exceptions with up to ~30000 elements. Thus, we limit the size of the Open Reading Frames to 99.9% quantile, with a length of 5000 amino acids. This only excludes a tiny percent of transcripts, at least during the development phase.
+
+### Results
+
+<p style="font-size:14pt; text-decoration:underline;">Summary of results:</p>
+
+- Most of the bins (almost 70%) has a single Open Reading Frame. The number of bins decreases exponentially as we increase the number of ORFs per bin.
+- The similarity score distribution only changes significantly as we the number of ORFs in the bin is higher than 3. Beyond that point, most of the similarity scores are normally distributed across a 0.64 median. 
+- For bins with low number of ORF, the similarity scores are most likely to be either really low (around 0.2) or exactly 1.
+
+#### Number of bins per number of Open Reading Frames {.tabset .break3 -}
+
+The following figure represents the number of bins with a given number of **comparable** Open Reading Frames. Note that comparable here means that the ORF is between 30 and 500 amino acids.
+
+```{r, fig.width = 10, fig.height=6.5, results='asis'}
+cat("##### 3' UTR {-} \n")
+plot_bin_size(simScore_3p, subtitle = "3' UTR Truncation")
+cat("\n\n")
+cat("##### 5'' UTR {-} \n")
+plot_bin_size(simScore_5p, subtitle = "5' UTR Truncation")
+cat("\n\n")
+cat("##### Comparison {-} \n")
+plot_bin_size_comparison(simScore_3p, simScore_5p, subtitle = "UTR Truncation comparison")
+cat("\n\n")
+```
+
+<!-- #### Number of bins per Similarity Score {-} -->
+
+#### Similarity Scores per number of Open Reading Frames {.tabset .break3 -}
+
+The following graph represent the distribution of similarity scores based on the number of comparable Open Reading Frames in each bin. It is really useful to study what values we would expect given the elements that compound each bin. A few notes:
+
+- The distributions become more a more normal because of central limit theorem. In the end, we are taking the distribution of the average similarity score, thus as more comparisons are tested, the more normal-like the distribution becomes.
+- At the same time, the distribution become more focused on a single value as the number increases, reducing the spread of the values. This is also a consequence of the increase in number of values being considered for the mean.
+- Average similarity scores for the bin in the 5' truncation is slightly higher than for the 3' truncation.
+
+```{r, fig.width = 10, fig.height=8, results='asis'}
+cat("##### 3' UTR {-}\n")
+plot_sim_results(simScore_3p, subtitle = "3' UTR Truncation")
+cat("\n\n")
+cat("##### 5'' UTR {-}\n")
+plot_sim_results(simScore_5p, subtitle = "5' UTR Truncation")
+cat("\n\n")
+```
+
+```{r, fig.width = 10, fig.height=10, results='asis'}
+cat("##### Comparison {-}\n")
+plot_sim_comparisons(simScore_5p, simScore_3p, subtitle = "UTR Truncation comparison")
+cat("\n\n")
+```
+
+# Information Score
+
+**Section in Development**
+
+This section will report how the actual information score is calculated from two main factors:
+
+1. The similarity score previously reported.
+2. The number of different ORFs/transcripts that compound the bin itself.
+
+The information score should allow for easy implementation of new factors that might be included in the future (i.e. conservation scores, functional annotation of the coding-sequences, etc).
+
+
+# Session info {.spacer}
+
+<details>
+<summary>Show/hide</summary>
+
+```{r reproducibility, echo = FALSE}
+# Session info
+library("sessioninfo")
+options(width = 120)
+session_info()
+```
+
+</details>
