@@ -80,6 +80,6 @@ in_ref_filter: True
 
 ################################################################################
 ## ORF Evaluation
-sample_file: "data/sample_sheet copy.csv"
+sample_file: "data/sample_sheet.csv"
 tech: "10xv3" 
 strand: "--fr-stranded" 

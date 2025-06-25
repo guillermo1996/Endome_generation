@@ -32,20 +32,19 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-
+# snakemake@input$input_files <- c("results_k15/06-Evaluation/kallisto/sq3.annotated.w500.3p/borah_IPL_S3/run_info.json",
+#                                  "results_k15/06-Evaluation/kallisto/sq3.annotated.w500.3p/bovon_ACG_S1/run_info.json")
 ################################################################################
 ## Load Data and plot
 ################################################################################
 
-raw_data <- list.dirs(snakemake@input$input_dir, recursive = F) %>%
+raw_data <- snakemake@input$input_files %>%
   lapply(function(x) {
-    files <- list.files(x)
-
-    if("run_info.json" %in% files){
-      jsonlite::fromJSON(file.path(x, "run_info.json")) %>%
+    if(basename(x) == "run_info.json"){
+      jsonlite::fromJSON(x) %>%
         as.data.frame() %>%
         dplyr::as_tibble() %>%
-        dplyr::mutate(sample_id = basename(x)) %>%
+        dplyr::mutate(sample_id = basename(dirname(x))) %>%
         dplyr::relocate(sample_id)
     }
   }) %>%

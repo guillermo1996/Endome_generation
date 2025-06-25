@@ -256,6 +256,35 @@ rule sqanti3_rescue:
         "{input.filtered_classification} 2>&1 | tee {log}"
 
 ################################################################################
+## ORF Annotation
+################################################################################
+#sq3_download_script = config["sq3_download_script"]
+orfannotate_path = "resources/ORFannotate"
+
+##########
+## ORF Annotate Download - W.I.P.
+rule download_ORFannotate:
+    output:
+        orfannotate_dir = directory(orfannotate_path)
+
+rule ORF_annotate:
+    input: "tests/T05-ORFannotate/subset.gtf" #results_path("03-Sqanti3/Sqanti3_Rescue/sq3.annotated_rescued.gtf")
+    output:
+        folder = directory(results_path("04-ORF_Identification/ORFannotate2")), 
+        summary = results_path("04-ORF_Identification/ORFannotate2/ORFannotate_summary.tsv")
+    log: log_path("ORFannotate/ORFannotate2.log")
+    benchmark: benchmark_path("ORFannotate/ORFannotate2.tsv")
+    params:
+        fa = ref_genome,
+        ORFannotate_script = "~/tools/ORFannotate/ORFannotate.py"
+    conda: "envs/ORFannotate.yaml"
+    shell:
+        """
+        python {params.ORFannotate_script} --gtf {input} --fa {params.fa} --outdir {output.folder}
+        """
+
+
+################################################################################
 ## ORF Identification & Categorization
 ################################################################################
 
@@ -434,60 +463,9 @@ rule kallisto_bus:
         
 rule pseudoalignment_rate:
     input:
-        input_dir = results_path("06-Evaluation/kallisto/{prefix}.w{width}.{txEnd}")
-        # input_files = expand(results_path("06-Evaluation/kallisto/{{prefix}}.w{{width}}.{{txEnd}}/{sample_id}/run_info.json"), sample_id = samples.index.values)
+        input_files = expand(results_path("06-Evaluation/kallisto/{{prefix}}.w{{width}}.{{txEnd}}/{sample}/run_info.json"), sample = samples.index)
+        # input_dir = results_path("06-Evaluation/kallisto/{prefix}.w{width}.{txEnd}")
     output:
         png = results_path("figures/{prefix}.w{width}.{txEnd}.pseudoalignment_rate.png")
     conda: "envs/r.yaml"
     script: "scripts/merge_run_info.R"
-
-# rule all:
-#     default_target: True
-#     input:
-#         expand("results/kallisto/sq3.annotated.w500.3p/{sample_id}/run_info.json", sample_id = samples.index.values),
-#         # "results/figures/sq3.annotated.w500.3p.pseudoalignment_rate.png"
-
-# rule kallisto_bus:
-#     input:
-#         idx=get_target_file('kdx'),
-#         files=get_sequence_files
-#     output:
-#         bus=temp("data/kallisto/{target}/{sample_id}/output.bus"),
-#         ec="data/kallisto/{target}/{sample_id}/matrix.ec",
-#         tx="data/kallisto/{target}/{sample_id}/transcripts.txt"
-#     params:
-#         tech=config['tech'],
-#         strand=config['strand'],
-#         bam=get_file_type
-#     threads: 16
-#     resources:
-#         mem_mb=1000
-#     conda: "envs/kallisto-bustools.yaml"
-#     shell:
-#         """
-#         outDir=$(dirname {output.bus})
-#         rm -r $outDir
-#         kallisto bus {params.bam} -t {threads} -i {input.idx} \\
-#         -x {params.tech} {params.strand} -o $outDir --verbose {input.files}
-#         """
-# # rule define_target:
-# #     input:
-# #         gtf = rules.gtxcutr_truncation.output.gtf,
-# #         merge = rules.gtxcutr_trucation.output.merge_table,
-# #         kfx = rules.kallisto_index.output.kdx
-# #     output:
-# #         target_file = "config/targets.yml"
-# #     params:
-# #         tag = lambda wc: f"endome_{wc.txEnd}_w{wc.width}"
-# #     shell:
-# #         "bash scripts/write_target_metadata.sh {output.target_file} {input.gtf} {wildcards.width} {wildcards.txEnd}"
-
-# module scUTRquant:
-#     snakefile: "resources/scUTRquant/Snakefile"
-#     config: config["scUTRquant_config"]
-
-# use rule kallisto_bus from scUTRquant as kallisto_bus with:
-#     input:
-#         idx = rules.kallisto_index.output
-#     output:
-#         run_info = "results/kallisto/{sample_id}/run_info.json"
