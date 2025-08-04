@@ -1,8 +1,7 @@
-name: kallisto
+name: pigeon
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  - kallisto=0.51.1
-  - bustools=0.45.1
+  - pbpigeon=1.4.0

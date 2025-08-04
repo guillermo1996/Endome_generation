@@ -18,7 +18,7 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-      input=list(gtf="~/RytenLab-Research/38-Endome_generation/results/ORF_Filter/sq3.annotated_orf.filter.gtf"),
+      input=list(gtf="~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/pigeon.annotated_orf.filter.gtf"),
       output=list(gtf="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.gtf",
                   fa="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.fa",
                   transcript_overlap="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.overlaps.tsv",

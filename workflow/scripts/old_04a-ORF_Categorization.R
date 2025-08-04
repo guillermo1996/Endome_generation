@@ -45,7 +45,7 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/38-Endome_generation/results/gffread/sq3.annotated.gtf",
+    input = list(gtf = "~/RytenLab-Research/38-Endome_generation/results_k15/04-ORF_Filtration/gffread/sq3.annotated.gtf",
                  ref_annotation = "~/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf",
                  sq3_class = "~/RytenLab-Research/38-Endome_generation/results/03-Sqanti3/Sqanti3_Filter/sq3.annotated_RulesFilter_result_classification.txt"),
     output = list(gtf = "~/RytenLab-Research/38-Endome_generation/results/04-ORF_Filtration/ORF_Category/sq3.annotated_orf.gtf"),

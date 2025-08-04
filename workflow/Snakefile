@@ -1,471 +1,70 @@
-import pandas as pd
-import os
+# Main entrypoint of the workflow.
+# Please follow the best practices:
+# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
+# in particular regarding the standardized folder structure mentioned there.
 
-from snakemake.utils import min_version
-from snakemake.utils import validate
-from sys import stderr, stdout
-from datetime import datetime
 
-# Set the minimum snakemake version
-min_version("8.30.0")
-
-# Load the configuration file and validate with the provided schema
+# load configuration
+# -----------------------------------------------------
 configfile: "config/config.yaml"
 # validate(config, schema="../schema/config_schema.yaml")
 
-# Define logging into stdout
-def message(type, text, **kwargs):
-    now = datetime.now()
-    print(f"[{type}] {now.strftime("%Y-%m-%d %H:%M:%S")} - {text}", file=stdout, **kwargs)
+# load rules
+# -----------------------------------------------------
+include: "rules/00-Common.smk"
+include: "rules/01-Alignment.smk"
+include: "rules/02-Transcriptome_Assembly.smk"
+# include: "rules/03-Sqanti3.smk"
+include: "rules/03-Pigeon.smk"
+include: "rules/04-ORF_Identification.smk"
+include: "rules/05-Truncation.smk"
+include: "rules/06-Evaluation.smk"
 
-# message("INFO", "Start snakemake pipeline")
+# optional messages, log and error handling
+# -----------------------------------------------------
+onstart:
+    print("\n--- Analysis started ---\n")
 
-# Load the generic configurations
-ref_genome = config["ref_genome"]
-ref_annotation = config["ref_annotation"]
+onsuccess:
+    print("\n--- Workflow finished! ---\n")
 
-# Define the input samples
-input_dir = config["input_dir"]
-input_metadata = config["input_metadata"]
-use_controls_as_input = config["use_controls_as_input"]
-sample_prefix = config["sample_prefix"]
-sample_suffix = config["sample_suffix"]
+onerror:
+    print("\n--- An error occurred! ---\n")
 
-if use_controls_as_input and Path(input_metadata).is_file():
-    samples = pd.read_csv(input_metadata, sep="\t")  # Adjust separator if needed
-    input_samples = samples.loc[samples["condition"] == "CT", "sample_id"].tolist() # Adjust the columns and conditions
-else:
-    input_samples = config["input_samples"]
+# rule all:
+#     input:
+#         txt = transcriptome_path("StringTie_Sample_Assembly/gtf_list.txt"),
+#         gtf2 = transcriptome_path("StringTie_Merge/merged_genome.gtf"),
+#         clean_gtf = transcriptome_path("gffcompare/gffcompare.annotated.clean.gtf"),
+#         ORFannotate_summary = orf_path("ORFannotate/pigeon.annotated/ORFannotate_summary.tsv"),
+#         ORF_category = orf_path("ORF_Category/pigeon.annotated_orf.gtf"),
+#         ORF_filtration = orf_path("ORF_Filtration/pigeon.annotated_orf.filter.gtf"),
+#         truncated_3p_endome = truncation_path("gtxcutr/pigeon.annotated.gtxcutr.w500.3p.gtf"),
+#         truncated_5p_endome = truncation_path("gtxcutr/pigeon.annotated.gtxcutr.w300.5p.gtf"),
+#     default_target: True
 
-# Output path
-results_path = lambda x: os.path.join(config["results_path"], x)
-log_path = lambda x: os.path.join(config["log_path"], x)
-benchmark_path = lambda x: os.path.join(config["benchmark_path"], x)
+DATASETS = ["Ebbert", "Wood"]
+GROUPS = ["control_case", "control"]
+
+# DATASETS = ["Ebbert"]
+# GROUPS = ["control"]
+
+TRUNCS = ["3p", "5p"]
+WIDTHS = [300, 500]
 
 rule all:
     input:
-        truncated_3p_endome = results_path("05-Truncation/gtxcutr/sq3.annotated.gtxcutr.w500.3p.gtf"),
-        truncated_5p_endome = results_path("05-Truncation/gtxcutr/sq3.annotated.gtxcutr.w300.5p.gtf"),
-        a = results_path("figures/sq3.annotated.w500.3p.pseudoalignment_rate.png"),
-        b = results_path("figures/sq3.annotated.w300.5p.pseudoalignment_rate.png")
-        
-################################################################################
-## Alignment & Sorting
-################################################################################
-
-##########
-## Sample alignment
-def get_fastq_files(wildcards):
-    file_name = f"{sample_prefix}{wildcards.sample}{sample_suffix}"
-    file_path = os.path.join(input_dir, file_name)
-
-    return(file_path)
-
-rule minimap2_align:
-    input:
-        genome = ref_genome,
-        fastq = get_fastq_files
-    output: temp(results_path("01-Alignment/Minimap2.k{k}/{sample}.sam"))
-    log: log_path("Minimap2.k{k}/{sample}.log")
-    benchmark: benchmark_path("Minimap2.k{k}/{sample}.tsv")
-    params:
-        extra = config["minimap2_flags"],
-    threads: 8
-    conda: "envs/minimap2.yaml",
-    shell: "minimap2 {params.extra} -k {wildcards.k} -t {threads} -o {output} {input.genome} {input.fastq} > {log} 2>&1"
-
-##########
-## Sorting
-rule samtools_sort:
-    input: rules.minimap2_align.output
-    output: results_path("01-Alignment/Samtools_sort.k{k}/{sample}_sorted.bam"),
-    log: log_path("Samtools_sort.k{k}/{sample}.log"),
-    benchmark: benchmark_path("Samtools_sort.k{k}/{sample}.tsv"),
-    resources:
-        mem="10G"
-    threads: 6
-    conda: "envs/samtools.yaml"
-    shell:
-        "samtools view -b -u -@{threads} {input} | "
-        "samtools sort -@{threads} -m {resources.mem} -T tmp_ -o {output}"
-
-k_flag = config["k_flag"]
-
-################################################################################
-## Transcriptome Assembly
-################################################################################
-
-##########
-## StringTie Assemble transcriptome per sample
-ref_in_assembly = config["ref_in_assembly"]
-long_read_processing_in_assembly = config["long_read_processing_in_assembly"]
-
-rule stringtie_assembly:
-    input: expand(results_path("01-Alignment/Samtools_sort.k{k}/{sample}_sorted.bam"), k = k_flag, sample = input_samples)# rules.samtools_sort.output
-    output: results_path("02-Transcriptome_Assembly/StringTie_Sample_Assembly/{sample}.gtf")
-    log: log_path("StringTie_Sample_Assembly/{sample}.log")
-    benchmark: benchmark_path("StringTie_Sample_Assembly/{sample}.tsv")
-    params:
-        G_flag = f"-G {ref_annotation}" if ref_in_assembly else "",
-        L_flag = f"-L" if long_read_processing_in_assembly else "",
-    threads: 8
-    conda: "envs/stringtie.yaml"
-    shell:
-        "stringtie --rf -p {threads} {params.L_flag} {params.G_flag} -o {output} {input} > {log} 2>&1"
-
-##########
-## StringTie Merge Samples
-ref_in_merge = config["ref_in_merge"]
-long_read_processing_in_merge = config["long_read_processing_in_merge"]
-
-rule write_gtf_list:
-    input: 
-        expand(results_path("02-Transcriptome_Assembly/StringTie_Sample_Assembly/{sample}.gtf"), sample = input_samples)
-    output: 
-        gtf_list = results_path("02-Transcriptome_Assembly/StringTie_Sample_Assembly/gtf_list.txt"),
-        build_config = results_path("02-Transcriptome_Assembly/StringTie_Sample_Assembly/latest_build_config.txt")
-    params: 
-        minimap2_k_flag = config["k_flag"]
-    shell: 
-        """
-        printf '%s\n' {input} > {output.gtf_list}
-        echo "k_flag: {params.minimap2_k_flag}" > {output.build_config}
-        """
-
-rule stringtie_merge:
-    input: results_path(f"02-Transcriptome_Assembly/StringTie_Sample_Assembly/gtf_list.txt") #rules.write_gtf_list.output.gtf_list
-    output: results_path(f"02-Transcriptome_Assembly/StringTie_Merge/control_genome.gtf"),
-    log: log_path(f"StringTie_Merge/control_genome.log"),
-    benchmark: benchmark_path(f"StringTie_Merge/control_genome.tsv")
-    params:
-        G_flag = f"-G {ref_annotation}" if ref_in_merge else "",
-        L_flag = f"-L" if long_read_processing_in_merge else "",
-    threads: 16,
-    conda: "envs/stringtie.yaml",
-    shell: "stringtie --merge {params.L_flag} {params.G_flag} -p {threads} -o {output} {input} > {log} 2>&1"
-
-################################################################################
-## Transcriptome comparison & filtration
-################################################################################
-
-##########
-## gffcompare annotation
-rule gffcompare:
-    input: rules.stringtie_merge.output,
-    output: results_path("02-Transcriptome_Assembly/gffcompare/gffcompare.annotated.gtf")
-    log: log_path("gffcompare/gffcompare.annotated.log")
-    benchmark: benchmark_path("gffcompare/gffcompare.annotated.tsv")
-    params: 
-        r_flag = f"-r {ref_annotation}",
-        output_name = results_path("02-Transcriptome_Assembly/gffcompare/gffcompare"),
-    conda: "envs/gffcompare.yaml",
-    shell: "gffcompare -V {params.r_flag} -o {params.output_name} {input} > {log} 2>&1"
-
-##########
-## Manual filtering of Chromosomes and Strand
-rule manual_filter:
-    input: rules.gffcompare.output
-    output: results_path("02-Transcriptome_Assembly/gffcompare/gffcompare.annotated.clean.gtf")
-    log: log_path("gffcompare/gffcompare.annotated.clean.log")
-    benchmark: benchmark_path("gffcompare/gffcompare.annotated.clean.tsv")
-    shell: "awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' {input} > {output} 2> {log}"
-
-################################################################################
-## Sqanti3
-################################################################################
-sq3_download_script = config["sq3_download_script"]
-sq3_path = "resources/Sqanti3"
-
-##########
-## Sqanti3 execution enviroment
-rule download_sqanti3:
-    input: ancient(sq3_download_script)
-    output:
-        sq3_dir = directory(sq3_path),
-        sq3_qc = f"{sq3_path}/sqanti3_qc.py",
-        sq3_filter = f"{sq3_path}/sqanti3_filter.py",
-        sq3_rescue = f"{sq3_path}/sqanti3_rescue.py",
-        sq3_env = f"{sq3_path}/SQANTI3.conda_env.yml",
-        default_rules = f"{sq3_path}/src/utilities/filter/filter_default.json"
-    log: log_path("outputs/logs/sq3_logs/download_sqanti3.log")
-    conda: "envs/download_scripts.yaml"
-    script: "scripts/download_sqanti3.sh"
-
-##########
-## Sqanti3 pipeline
-rule sqanti3_qc:
-    input: 
-        sq3_qc = f"{sq3_path}/sqanti3_qc.py",
-        isoform = lambda wc: rules.manual_filter.output if wc.sq3_ref != "_reference" else ref_annotation,
-        annotation = ref_annotation,
-        genome = ref_genome,
-    output:
-        classification = results_path("03-Sqanti3/Sqanti3_QC{sq3_ref}/{prefix}_classification.txt"),
-        corrected_gff = results_path("03-Sqanti3/Sqanti3_QC{sq3_ref}/{prefix}_corrected.gtf.cds.gff"),
-        corrected_fasta = results_path("03-Sqanti3/Sqanti3_QC{sq3_ref}/{prefix}_corrected.fasta"),
-    log: log_path("sq3_logs{sq3_ref}/{prefix}_qc.log")
-    benchmark: benchmark_path("sq3_benchmarks{sq3_ref}/{prefix}_qc.tsv")
-    params:
-        out_dir = results_path("03-Sqanti3/Sqanti3_QC{sq3_ref}")
-    wildcard_constraints: 
-        sq3_ref = ".{0}|_.+"
-    threads: 16
-    conda: "envs/sqanti3.yaml" # ".snakemake/conda/sq3_env" ~ Bug in current snakemake version https://github.com/snakemake/snakemake/issues/3192
-    shell: 
-        """
-        python {input.sq3_qc} --force_id_ignore -n {threads} -o {wildcards.prefix} -d {params.out_dir} --report skip \\
-        {input.isoform} {input.annotation} {input.genome} 2>&1 | tee {log}
-        """
-        
-rule sqanti3_filter:
-    input:
-        sq3_filter = f"{sq3_path}/sqanti3_filter.py",
-        classification = results_path("03-Sqanti3/Sqanti3_QC/{prefix}_classification.txt"),
-        corrected_gff = results_path("03-Sqanti3/Sqanti3_QC/{prefix}_corrected.gtf.cds.gff")
-    output: 
-        filtered_gtf = results_path("03-Sqanti3/Sqanti3_Filter/{prefix}.filtered.gtf"),
-        filtered_classification = results_path("03-Sqanti3/Sqanti3_Filter/{prefix}_RulesFilter_result_classification.txt")
-    log: log_path("sq3_logs/{prefix}_filter.log")
-    benchmark: benchmark_path("sq3_benchmarks/{prefix}_filter.tsv")
-    params:
-        out_dir = results_path("03-Sqanti3/Sqanti3_Filter")
-    conda: "envs/sqanti3.yaml"
-    shell: 
-        "python {input.sq3_filter} rules --gtf {input.corrected_gff} -d {params.out_dir} {input.classification} 2>&1 | tee {log}"
-
-rule sqanti3_rescue:
-    input:
-        sq3_rescue = f"{sq3_path}/sqanti3_rescue.py",
-        isoforms = results_path("03-Sqanti3/Sqanti3_QC/{prefix}_corrected.fasta"),
-        filtered_gtf = results_path("03-Sqanti3/Sqanti3_Filter/{prefix}.filtered.gtf"),
-        filtered_classification = results_path("03-Sqanti3/Sqanti3_Filter/{prefix}_RulesFilter_result_classification.txt"),
-        ref_genome = ref_genome,
-        ref_annotation = ref_annotation,
-        ref_annotation_classification = results_path("03-Sqanti3/Sqanti3_QC_reference/sq3.reference_classification.txt"),
-        sq3_rules = os.path.join(sq3_path, "src/utilities/filter/filter_default.json"),
-    output: results_path("03-Sqanti3/Sqanti3_Rescue/{prefix}_rescued.gtf")
-    log: log_path("sq3_logs/{prefix}_rescue.log")
-    benchmark: benchmark_path("sq3_benchmarks/{prefix}_rescue.tsv")
-    params:
-        out_dir = results_path("03-Sqanti3/Sqanti3_Rescue")
-    conda: "envs/sqanti3.yaml"
-    shell:
-        "python {input.sq3_rescue} rules --isoforms {input.isoforms} --gtf {input.filtered_gtf} "
-        "--refGenome {input.ref_genome} --refGTF {input.ref_annotation} --refClassif {input.ref_annotation_classification} "
-        "--mode full -j {input.sq3_rules} -d {params.out_dir} -o {wildcards.prefix} "
-        "{input.filtered_classification} 2>&1 | tee {log}"
-
-################################################################################
-## ORF Annotation
-################################################################################
-#sq3_download_script = config["sq3_download_script"]
-orfannotate_path = "resources/ORFannotate"
-
-##########
-## ORF Annotate Download - W.I.P.
-rule download_ORFannotate:
-    output:
-        orfannotate_dir = directory(orfannotate_path)
-
-rule ORF_annotate:
-    input: "tests/T05-ORFannotate/subset.gtf" #results_path("03-Sqanti3/Sqanti3_Rescue/sq3.annotated_rescued.gtf")
-    output:
-        folder = directory(results_path("04-ORF_Identification/ORFannotate2")), 
-        summary = results_path("04-ORF_Identification/ORFannotate2/ORFannotate_summary.tsv")
-    log: log_path("ORFannotate/ORFannotate2.log")
-    benchmark: benchmark_path("ORFannotate/ORFannotate2.tsv")
-    params:
-        fa = ref_genome,
-        ORFannotate_script = "~/tools/ORFannotate/ORFannotate.py"
-    conda: "envs/ORFannotate.yaml"
-    shell:
-        """
-        python {params.ORFannotate_script} --gtf {input} --fa {params.fa} --outdir {output.folder}
-        """
-
-
-################################################################################
-## ORF Identification & Categorization
-################################################################################
-
-### GTF Correction methods
-gtf_correction_method = config["gtf_correction_method"]
-
-def select_gtf_correction_input(gtf_correction_method = "none"):
-    if gtf_correction_method == "agat":
-        return rules.agat_correction.output
-    elif gtf_correction_method == "gffread":
-        return rules.gffread_correction.output
-    else:
-        return rules.sqanti3_rescue.output
-
-rule agat_correction:
-    input: rules.sqanti3_rescue.output
-    output: results_path("04-ORF_Filtration/AGAT/{prefix}.gtf")
-    log: log_path("AGAT/{prefix}.log")
-    benchmark: benchmark_path("AGAT/{prefix}.tsv")
-    conda: "envs/agat.yaml"
-    shell: "agat_convert_sp_gff2gtf.pl --gtf_version 3 --gff {input} -o {output} 2>&1 | tee {log}"
-
-rule gffread_correction:
-    input: rules.sqanti3_rescue.output
-    output: results_path("04-ORF_Filtration/gffread/{prefix}.gtf")
-    log: log_path("gffread/{prefix}.log")
-    benchmark: benchmark_path("gffread/{prefix}.tsv")
-    conda: "envs/gffread.yaml"
-    shell: "gffread -E {input} -T -o {output} 2>&1 | tee {log}"
-
-### ORF Categotization
-rule orf_categorization:
-    input:
-        gtf = select_gtf_correction_input(gtf_correction_method),
-        sq3_class = rules.sqanti3_filter.output.filtered_classification,
-        ref_annotation = ref_annotation
-    output: 
-        gtf = results_path("04-ORF_Filtration/ORF_Category/{prefix}_orf.gtf")
-    log: log_path("ORF_Category/{prefix}_orf.log")
-    benchmark: benchmark_path("ORF_Category/{prefix}_orf.tsv")
-    conda: "envs/r.yaml"
-    script: "scripts/ORF_Categorization.R"
-
-### ORF Filtration
-rule orf_filtration:
-    input:
-        gtf = rules.orf_categorization.output.gtf
-    output:
-        gtf = results_path("04-ORF_Filtration/ORF_Filter/{prefix}_orf.filter.gtf")
-    log: log_path("ORF_Filter/{prefix}_orf.filter.log")
-    benchmark:benchmark_path("ORF_Filter/{prefix}_orf.filter.tsv")
-    params:
-        valid_ref_gene_type = config["valid_ref_gene_type"],
-        valid_ref_tx_type = config["valid_ref_tx_type"],
-        valid_sq3_type = config["valid_sq3_type"],
-        hasCDS_filter = config["hasCDS_filter"],
-        in_ref_filter = config["in_ref_filter"]
-    conda: "envs/r.yaml"
-    script: "scripts/ORF_Filtration.R"
-
-################################################################################
-## Transcriptome completeness and filtration
-################################################################################
-# rule add_utr_and_codon:
-#     input: rules.sqanti3_rescue.output
-#     output: "results/AGAT/{prefix}_complete.gtf"
-#     conda: "envs/agat.yaml"
-#     shell: "agat_sp_add_start_and_stop.pl "
-
-
-################################################################################
-## Endome Truncation
-################################################################################
-filter_gtf_preTruncation = config["filter_gtf_preTruncation"]
-
-def select_gtf_preTruncation(filter_gtf_preTruncation = "none", gtf_correction_method = "none"):
-    if filter_gtf_preTruncation:
-        return rules.orf_filtration.output.gtf
-    else:
-        return select_gtf_correction_input(gtf_correction_method)
-
-### The following rule was extracted and addapted from `txcutr-db` by Mayrlab: https://github.com/Mayrlab/txcutr-db
-rule gtxcutr_truncation:
-    input: 
-        gtf = select_gtf_preTruncation(filter_gtf_preTruncation)
-    output: 
-        gtf = results_path("05-Truncation/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.gtf"),
-        fa = results_path("05-Truncation/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.fa.gz"),
-        transcript_overlap = results_path("05-Truncation/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.overlaps.tsv"),
-        merge_table = results_path("05-Truncation/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.merge.tsv")
-    log: log_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.log")
-    benchmark: benchmark_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.tsv")
-    wildcard_constraints: 
-        txEnd = "\\dp"
-    params:
-        mergeDist = 200,
-        genome = "hg38"
-    conda: "envs/gtxcutr.yaml"
-    threads: 12
-    script: "scripts/gtxcutr.R" # Modified `txcutr.R` script to include my version of the package
-
-rule txcutr_truncation:
-    input: 
-        gtf = select_gtf_preTruncation(filter_gtf_preTruncation)
-    output: 
-        gtf = results_path("05-Truncation/txcutr/{prefix}.txcutr.w{width}.gtf"),
-        fa = results_path("05-Truncation/txcutr/{prefix}.txcutr.w{width}.fa.gz"),
-        tsv = results_path("05-Truncation/gtxcutr/{prefix}.gtxcutr.w{width}.merge.tsv")
-    log: results_path("txcutr/{prefix}.txcutr.w{width}.log")
-    benchmark: results_path("txcutr/{prefix}.txcutr.w{width}.tsv")
-    params:
-        mergeDist = 200,
-        genome = "hg38"
-    conda: "envs/txcutr.yaml"
-    threads: 24
-    script: "scripts/txcutr.R"
-
-
-################################################################################
-## Endome Annotation
-################################################################################
-
-rule endome_annotation:
-    input:
-        gtf = rules.gtxcutr_truncation.output.gtf
-    output:
-        gtf = "results/Endome_Annotation/{prefix}.w{width}.annotated.gtf"
-    log: "outputs/logs/Endome_Annotation/{prefix}.gtxcutr.w{width}.log"
-    benchmark: "outputs/benchmarks/Endome_Annotation/{prefix}.gtxcutr.w{width}.tsv"
-    conda: "envs/r_scripts.yaml"
-    script: "scripts/Endome_Annotation.R"
-
-################################################################################
-## scUTRquant pseudo-alignment
-################################################################################
-samples = pd.read_csv(config['sample_file'], index_col='sample_id')
-
-def get_sequence_files(wildcards):
-    return samples.files[wildcards.sample_id].split(';')
-
-rule kallisto_index:
-    input:
-        fa = rules.gtxcutr_truncation.output.fa
-    output:
-        kdx = results_path("06-Evaluation/gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.kdx")
-    log: log_path("kallisto/{prefix}.gtxcutr.w{width}.{txEnd}.log")
-    benchmark: benchmark_path("kallisto/{prefix}.gtxcutr.w{width}.{txEnd}.tsv")
-    params:
-        tmp_dir = "tmp_kallisto_{prefix}_{width}_{txEnd}"
-    conda: "envs/kallisto.yaml"
-    threads: 8
-    shell:
-        # "kallisto index --threads {threads} --tmp {params.tmp_dir} -i {output.kdx} {input.fa} > {log} 2>&1"
-        "kallisto index -i {output.kdx} {input.fa} 2>&1 | tee {log}"
-
-rule kallisto_bus:
-    input:
-        kdx = rules.kallisto_index.output.kdx,
-        files = get_sequence_files
-    output:
-        run_info = results_path("06-Evaluation/kallisto/{prefix}.w{width}.{txEnd}/{sample_id}/run_info.json"),
-    params:
-        tech = config["tech"],
-        strand = config["strand"],
-        out_dir = results_path("06-Evaluation/kallisto/{prefix}.w{width}.{txEnd}/{sample_id}")
-    log: log_path("kallisto/{prefix}.w{width}.{txEnd}/{sample_id}.log")
-    benchmark: benchmark_path("kallisto/{prefix}.w{width}.{txEnd}/{sample_id}.tsv")
-    conda: "envs/kallisto.yaml"
-    wildcard_constraints: 
-        runThreads = "\\d+"
-    threads: 16
-    shell:
-        """
-        kallisto bus -t {threads} -i {input.kdx} -x {params.tech} {params.strand} -o {params.out_dir} --verbose {input.files} 2>&1 | tee {log}
-        """
-        
-rule pseudoalignment_rate:
-    input:
-        input_files = expand(results_path("06-Evaluation/kallisto/{{prefix}}.w{{width}}.{{txEnd}}/{sample}/run_info.json"), sample = samples.index)
-        # input_dir = results_path("06-Evaluation/kallisto/{prefix}.w{width}.{txEnd}")
-    output:
-        png = results_path("figures/{prefix}.w{width}.{txEnd}.pseudoalignment_rate.png")
-    conda: "envs/r.yaml"
-    script: "scripts/merge_run_info.R"
+        endome_samples = expand(Path(results_output_path) / "{dataset}.{group}.endome_samples_df.tsv", dataset = DATASETS, group = GROUPS),
+        gtf_list = expand(transcriptome_path("StringTie_Sample_Assembly/{dataset}.{group}.gtf_list.txt"), dataset = DATASETS, group = GROUPS),
+        gffcompare_gtf = expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"), dataset = DATASETS, group = GROUPS),
+        pigeon_filter_gtf = expand(pigeon_path("Classify_Filter/{dataset}.{group}.pigeon.sorted.filtered.gtf"), dataset = DATASETS, group = GROUPS),
+        orf_filtered_gtf = expand(orf_path("ORF_Filtration/{dataset}.{group}.orf_filter.gtf"), dataset = DATASETS, group = GROUPS),
+        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.gtxcutr.w{width}.{txEnd}.gtf"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS),
+        kallisto_index = expand(evaluation_path("kallisto_index/{dataset}.{group}.gtxcutr.w{width}.{txEnd}.kdx"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS),
+        run_info = expand(evaluation_path("06-Evaluation/kallisto/{dataset}.{group}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS, sample_id = evaluation_samples.index),
+        # pigeon = expand(pigeon_path("Classify_Filter/{dataset}.{group}.pigeon_classification.txt"), dataset = DATASETS, group = GROUPS)
+        # pigeon_filter_gtf = pigeon_path("Classify_Filter/pigeon.sorted.filtered.gtf"),
+        # orf_filtered_gtf = orf_path("ORF_Filtration/pigeon_orf.filter.gtf"),
+        # truncated_3p_gtf = truncation_path("gtxcutr/pigeon.gtxcutr.w500.3p.gtf"),
+        # truncated_5p_gtf = truncation_path("gtxcutr/pigeon.gtxcutr.w300.5p.gtf"),
+    default_target: True

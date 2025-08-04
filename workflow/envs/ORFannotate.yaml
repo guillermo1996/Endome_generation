@@ -10,3 +10,6 @@ dependencies:
   - gffread=0.12.7
   - biopython=1.85
   - pandas=2.3.0
+  - pyfaidx=0.8.1.4
+  - tqdm=4.67.1
+  - pytest=7.4.4
