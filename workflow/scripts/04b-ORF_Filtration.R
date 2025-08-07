@@ -43,12 +43,13 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Category/pigeon.annotated_orf.gtf"),
-    output = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/pigeon.annotated_orf.filter.gtf"),
+    input = list(gtf = "~/RytenLab-Research/snakefile-refactor/results/Ebbert.control.k14/04-ORF_Identification/ORF_Category/Ebbert.control_orf.gtf"),
+    output = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/Ebbert.control.orf_filter.gtf"),
     params = list(
+      main_config = "cfg",
       valid_ref_gene_type = c("protein_coding"),
       valid_ref_tx_type = c("protein_coding"),
-      valid_orfannotate_type = c("protein_coding"),
+      valid_orfannotate_type = c("coding"),
       in_ref_filter = TRUE
     )
   )
@@ -94,11 +95,21 @@ gtf <- rtracklayer::import(input_gtf_path)
 
 #----------------------------------------------------------------------------- #
 ## 2.1 Load filters ----
+main_config <- snakemake@params$main_config
 valid_ref_gene_type <- snakemake@params$valid_ref_gene_type
 valid_ref_tx_type <- snakemake@params$valid_ref_tx_type
 valid_orfannotate_type <- snakemake@params$valid_orfannotate_type
 in_ref_filter <- snakemake@params$in_ref_filter
 
+if(main_config == "pc"){
+  valid_ref_gene_type = c("protein_coding")
+  valid_ref_tx_type = c("protein_coding")
+  valid_orfannotate_type = c("coding")
+}else if(main_config == "all"){
+  valid_ref_gene_type = c("all")
+  valid_ref_tx_type = c("all")
+  valid_orfannotate_type = c("all")
+}
 
 #----------------------------------------------------------------------------- #
 ## 2.2 Apply the filterst o extract the valid transcripts ----

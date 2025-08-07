@@ -44,7 +44,8 @@ onerror:
 #     default_target: True
 
 DATASETS = ["Ebbert", "Wood"]
-GROUPS = ["control_case", "control"]
+GROUPS = ["control"]
+ORF_FILTER = ["pc", "all"]
 
 # DATASETS = ["Ebbert"]
 # GROUPS = ["control"]
@@ -54,17 +55,14 @@ WIDTHS = [300, 500]
 
 rule all:
     input:
-        endome_samples = expand(Path(results_output_path) / "{dataset}.{group}.endome_samples_df.tsv", dataset = DATASETS, group = GROUPS),
-        gtf_list = expand(transcriptome_path("StringTie_Sample_Assembly/{dataset}.{group}.gtf_list.txt"), dataset = DATASETS, group = GROUPS),
-        gffcompare_gtf = expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"), dataset = DATASETS, group = GROUPS),
-        pigeon_filter_gtf = expand(pigeon_path("Classify_Filter/{dataset}.{group}.pigeon.sorted.filtered.gtf"), dataset = DATASETS, group = GROUPS),
-        orf_filtered_gtf = expand(orf_path("ORF_Filtration/{dataset}.{group}.orf_filter.gtf"), dataset = DATASETS, group = GROUPS),
-        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.gtxcutr.w{width}.{txEnd}.gtf"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS),
-        kallisto_index = expand(evaluation_path("kallisto_index/{dataset}.{group}.gtxcutr.w{width}.{txEnd}.kdx"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS),
-        run_info = expand(evaluation_path("06-Evaluation/kallisto/{dataset}.{group}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = DATASETS, group = GROUPS, width = WIDTHS, txEnd = TRUNCS, sample_id = evaluation_samples.index),
-        # pigeon = expand(pigeon_path("Classify_Filter/{dataset}.{group}.pigeon_classification.txt"), dataset = DATASETS, group = GROUPS)
-        # pigeon_filter_gtf = pigeon_path("Classify_Filter/pigeon.sorted.filtered.gtf"),
-        # orf_filtered_gtf = orf_path("ORF_Filtration/pigeon_orf.filter.gtf"),
-        # truncated_3p_gtf = truncation_path("gtxcutr/pigeon.gtxcutr.w500.3p.gtf"),
-        # truncated_5p_gtf = truncation_path("gtxcutr/pigeon.gtxcutr.w300.5p.gtf"),
+        #endome_samples = expand(Path(results_output_path) / "{dataset}.{group}.endome_samples_df.tsv", dataset = DATASETS, group = GROUPS),
+        #gtf_list = expand(transcriptome_path("StringTie_Sample_Assembly/{dataset}.{group}.gtf_list.txt"), dataset = DATASETS, group = GROUPS),
+        #gffcompare_gtf = expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"), dataset = DATASETS, group = GROUPS),
+        #pigeon_filter_gtf = expand(pigeon_path("Classify_Filter/{dataset}.{group}.pigeon.sorted.filtered.gtf"), dataset = DATASETS, group = GROUPS),
+        #orf_filtered_gtf = expand(orf_path("ORF_Filtration/{dataset}.{group}.{orf_filtration}.orf_filter.gtf"), dataset = DATASETS, group = GROUPS, orf_filtration = ORF_FILTER),
+        #truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filtration}.gtxcutr.w{width}.{txEnd}.gtf"), dataset = DATASETS, group = GROUPS, orf_filtration = ORF_FILTER, width = WIDTHS, txEnd = TRUNCS),
+        #kallisto_index = expand(evaluation_path("kallisto_index/{dataset}.{group}.{orf_filtration}.gtxcutr.w{width}.{txEnd}.kdx"), dataset = DATASETS, group = GROUPS, orf_filtration = ORF_FILTER, width = WIDTHS, txEnd = TRUNCS),
+        run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = DATASETS, group = GROUPS, orf_filtration = ORF_FILTER, width = WIDTHS, txEnd = TRUNCS, sample_id = evaluation_samples.index),
+        run_info_gencode_all = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = "gencode", group = "none", orf_filtration = "all", width = "0", txEnd = "0p", sample_id = evaluation_samples.index),
+        run_info_gencode_pc = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = "gencode", group = "none", orf_filtration = "pc", width = "0", txEnd = "0p", sample_id = evaluation_samples.index),
     default_target: True

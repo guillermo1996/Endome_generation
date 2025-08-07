@@ -12,8 +12,8 @@ from pathlib import Path
 min_version("8.30.0")
 
 wildcard_constraints:
-    dataset = "Wood|Ebbert",
-    group = "control|case|control_case",
+    dataset = "Wood|Ebbert|gencode",
+    group = "control|case|control_case|none",
 
 ################################################################################
 ## Load reference configuration

@@ -113,10 +113,11 @@ rule ORF_filtration:
     input:
         gtf = rules.ORF_categorization.output.gtf
     output:
-        gtf = orf_path("ORF_Filtration/{prefix}.orf_filter.gtf")
-    log: log_path("ORF_Category/{prefix}_orf.log")
-    benchmark: benchmark_path("ORF_Category/{prefix}_orf.tsv")
+        gtf = orf_path("ORF_Filtration/{prefix}.{orf_filter}.orf_filter.gtf")
+    log: log_path("ORF_Category/{prefix}.{orf_filter}_orf.log")
+    benchmark: benchmark_path("ORF_Category/{prefix}.{orf_filter}_orf.tsv")
     params:
+        main_config = lambda wc: wc.orf_filter,
         valid_ref_gene_type = config["valid_ref_gene_type"],
         valid_ref_tx_type = config["valid_ref_tx_type"],
         valid_orfannotate_type = config["valid_orfannotate_type"],

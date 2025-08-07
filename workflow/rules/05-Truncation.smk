@@ -16,12 +16,12 @@ rule gtxcutr_truncation:
     input: 
         gtf = rules.ORF_filtration.output.gtf
     output: 
-        gtf = truncation_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.gtf"),
-        fa = truncation_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.fa.gz"),
-        transcript_overlap = truncation_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.overlaps.tsv"),
-        merge_table = truncation_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.merge.tsv")
-    log: log_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.log")
-    benchmark: benchmark_path("gtxcutr/{prefix}.gtxcutr.w{width}.{txEnd}.tsv")
+        gtf = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
+        fa = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.fa.gz"),
+        transcript_overlap = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.overlaps.tsv"),
+        merge_table = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.merge.tsv")
+    log: log_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.log")
+    benchmark: benchmark_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.tsv")
     wildcard_constraints: 
         txEnd = "\\dp"
     params:
