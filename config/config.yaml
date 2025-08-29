@@ -126,6 +126,6 @@ in_ref_filter: True
 
 ################################################################################
 ## ORF Evaluation
-evaluation_sample_file: "data/sample_sheet_ACG_50.csv"
+evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_50.csv"
 tech: "10xv3" 
 strand: "--fr-stranded" 
