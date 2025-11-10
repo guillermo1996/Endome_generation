@@ -63,18 +63,21 @@ evaluation_samples = pd.read_csv(config['evaluation_sample_file'], index_col='sa
 ################################################################################
 ## Define the Output paths
 ################################################################################
-main_output_path = config["main_output_path"]
-project_output_path = f"{{dataset}}.{{group}}.k{config["k_flag"]}"
-results_output_path = Path(main_output_path) / project_output_path
+main_output_path = config["main_output_path"] # "results"
+project_output_path = f"{{dataset}}.{{group}}"
 
-log_path = lambda x: Path(results_output_path) / config["log_path"] / x
-benchmark_path = lambda x: Path(results_output_path) / config["benchmark_path"] / x
+results_path = Path(main_output_path) / project_output_path
 
+log_path = lambda x: Path(results_path) / config["log_path"] / x
+benchmark_path = lambda x: Path(results_path) / config["benchmark_path"] / x
 
-rule print_input_samples:
-    output: "test.log"
-    run:
-        print(generate_input_samples("Ebbert", "control_case"))
+### Steps Output
+alignment_path = lambda x: Path(results_path) / "01-Alignment" / x
+transcriptome_path = lambda x: Path(results_path) / "02-Transcriptome_Assembly" / x
+pigeon_path = lambda x: Path(results_path) / "03-Pigeon" / x
+orf_path = lambda x: Path(results_path) / "04-ORF_Identification" / x
+truncation_path = lambda x: Path(results_path) / "05-Truncation" / x
+evaluation_path = lambda x: Path(results_path) / "06-Evaluation" / x
 
 rule generate_input_df:
     output: 

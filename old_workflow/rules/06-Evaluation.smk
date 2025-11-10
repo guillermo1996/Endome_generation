@@ -4,7 +4,6 @@
 
 ## Variables
 ################################################################################
-evaluation_path = lambda x: Path(results_output_path) / "06-Evaluation" / x
 
 evaluation_samples = pd.read_csv(config['evaluation_sample_file'], index_col='sample_id')
 

@@ -4,7 +4,6 @@
 
 ## Variables
 ################################################################################
-transcriptome_path = lambda x: Path(results_output_path) / "02-Transcriptome_Assembly" / x
 
 ### Configurations
 ref_in_assembly = config["ref_in_assembly"]

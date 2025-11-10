@@ -5,7 +5,6 @@
 ## Variables
 ################################################################################
 orfannotate_path = "tools/ORFannotate"
-orf_path = lambda x: Path(results_output_path) / "04-ORF_Identification" / x
 
 ### Configurations
 

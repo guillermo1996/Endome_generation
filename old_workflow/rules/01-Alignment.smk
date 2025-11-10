@@ -4,7 +4,6 @@
 
 ## Variables
 ################################################################################
-alignment_path = lambda x: Path(results_output_path) / "01-Alignment" / x
 
 ### Configurations
 
