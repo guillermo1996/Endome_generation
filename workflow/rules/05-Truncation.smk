@@ -30,3 +30,6 @@ rule gtxcutr_truncation:
     conda: "../envs/gtxcutr.yaml"
     threads: 12
     script: "../scripts/05a-gtxcutr.R" # Modified `txcutr.R` script to include my version of the package
+
+
+# To Do: Check Tama Collapse approach to solve the cascade binning issue in gtxcutr: https://github.com/GenomeRIK/tama/wiki/Tama-Collapse

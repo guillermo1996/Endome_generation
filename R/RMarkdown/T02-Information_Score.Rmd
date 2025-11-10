@@ -251,7 +251,6 @@ merged_rescaled %>%
 
 This issue is likely to propagate noise and might be problematic for some complex genes. Do note that frequency of these events is really low, at approximately 0.05% of the binned transcripts.
 
-
 <details>
 <summary>Expand to see the same graph with CDS information displayed:</summary>
 <br>
