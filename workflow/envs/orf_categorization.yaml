@@ -1,0 +1,14 @@
+name: orf_categorization
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - openssl=3.4.1
+  - libcurl=8.12.1
+  - r-base=4.3.3
+  - r-devtools=2.4.5
+  - r-tidyverse=2.0.0
+  - bioconductor-rtracklayer=1.62.0
+  - bioconductor-genomicranges=1.54.1
+  - bioconductor-plyranges=1.22.0

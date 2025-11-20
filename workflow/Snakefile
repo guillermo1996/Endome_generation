@@ -1,0 +1,76 @@
+# Main entrypoint of the workflow.
+# Please follow the best practices:
+# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
+# in particular regarding the standardized folder structure mentioned there.
+
+from snakemake.utils import min_version
+from snakemake.utils import validate
+
+# Set the minimum snakemake version
+min_version("8.30.0")
+
+# load configuration
+# -----------------------------------------------------
+configfile: "config/config.yaml"
+# validate(config, schema="../schema/config_schema.yaml")
+
+# load rules
+# -----------------------------------------------------
+include: "rules/00-Common.smk"
+include: "rules/01-Alignment.smk"
+include: "rules/02-Transcriptome_Assembly.smk"
+# # include: "rules/03-Sqanti3.smk"
+include: "rules/03-Artifact_Removal.smk"
+include: "rules/04-ORF_Identification.smk"
+include: "rules/05-Truncation.smk"
+# include: "rules/06-Evaluation.smk"
+
+# optional messages, log and error handling
+# -----------------------------------------------------
+onstart:
+    print("\n--- Analysis started ---\n")
+    for i in range(1, 7):
+        var_name = f"step0{i}_hash"
+        if var_name in globals():
+            print(f"Hash for Step {i}: {globals()[var_name]}")
+
+onsuccess:
+    print("\n--- Workflow finished! ---\n")
+    for i in range(1, 7):
+        var_name = f"step0{i}_hash"
+        if var_name in globals():
+            print(f"Hash for Step {i}: {globals()[var_name]}")
+
+onerror:
+    print("\n--- An error occurred! ---\n")
+
+
+# Pipeline variables
+# -----------------------------------------------------
+input_dataset = config.get("input_dataset", ["Ebbert"])
+input_group = config.get("input_group", ["control"])
+pc_filter = config.get("pc_filter", ["pc"])
+trunc_site = config.get("trunc_site", ["3p"])
+trunc_width = config.get("trunc_width", [500])
+
+wildcard_constraints:
+    dataset = "Wood|Ebbert|gencode",
+    group = "control|case|control_case|none",
+    txEnd = "\\dp"
+
+rule all:
+    input:
+        step01_params = expand(alignment_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        step02_params = expand(transcriptome_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        step03_params = expand(artifact_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        step04_params = expand(orf_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        step05_params = expand(truncation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        gffcompare_clean = expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"),
+            dataset = input_dataset, group = input_group),
+        pigeon_filtered_gtf = expand(artifact_path("Classify_Filter/{dataset}.{group}.pigeon.sorted.filtered.gtf"),
+            dataset = input_dataset, group = input_group),
+        orf_filtered_gtf = expand(orf_path("ORF_Filtration/{dataset}.{group}.{orf_filter}.orf_filter.gtf"),
+            dataset = input_dataset, group = input_group, orf_filter = pc_filter),
+        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"), 
+            dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+    default_target: True

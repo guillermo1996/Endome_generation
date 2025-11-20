@@ -1,0 +1,15 @@
+name: ORFannotate
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - cpat=3.0.5
+  - gffutils=0.13
+  - gffread=0.12.7
+  - biopython=1.85
+  - pandas=2.3.0
+  - pyfaidx=0.8.1.4
+  - tqdm=4.67.1
+  - pytest=7.4.4

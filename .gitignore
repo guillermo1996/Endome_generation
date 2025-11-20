@@ -11,9 +11,11 @@ data/**
 
 R/Others
 R/Results
+logs
 
 .github/
 .template/
 .Rproj.user
 .Rhistory
 tests
+*.vsg

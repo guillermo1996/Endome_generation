@@ -1,0 +1,152 @@
+##########################################################
+# Main config file for Endome generation pipeline 
+##########################################################
+
+
+############################
+# 01. DATA INPUTS
+############################
+
+### Path to reference genome
+ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.primary_assembly.genome.fa"
+
+### Path to reference annotation
+ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
+
+### Input samples
+input_dataset: ["Ebbert"]
+input_group: ["control"]
+
+#### Ebbert Data
+input_dir_ebbert: "/home/MinaRyten/Emil/public_data/long-read/Ebbert_2023"
+control_samples_ebbert:
+  - sample_1131_PAM44580
+  - sample_1304_PAM44487
+  - sample_1271_PAM44815
+  - sample_5356_PAM42933
+  - sample_1163_PAM44604
+  - sample_1092_PAM41667
+
+case_samples_ebbert:
+  - sample_579_PAG75663
+  - sample_1218_PAM43779
+  - sample_5295_PAG77944
+  - sample_5292_PAG75292
+  - sample_1186_PAM43869
+  - sample_1291_PAG71816
+
+### Output Data
+main_output_path: "debug_results"
+log_path: "outputs/logs"
+benchmark_path: "outputs/benchmarks"
+
+### General Settings
+pc_filter: ["pc"]
+trunc_site: ["3p", "5p"]
+trunc_width: [300, 500]
+
+
+
+############################################################
+#                 SOFTWARE CONFIGURATIONS
+############################################################
+
+############################
+# 00. Testing Pipeline
+############################
+use_toy_data: True
+subsample_seed: 1
+subsample_prop: "001" # 0.1%
+
+assembly_test: "st_ungui_gui"
+
+############################
+# 01. ALIGNMENT
+############################
+minimap2_profile: default
+
+### Minimap2 settings
+minimap2_settings:
+  default:
+    minimap2_kmer: 14                                       # K-mer size for seeding alignments
+    minimap2_flags: "-ax splice -uf --MD --secondary=no"    # Alignment mode and additional flags
+  k15:
+    minimap2_kmer: 15
+    minimap2_flags: "-ax splice -uf --MD --secondary=no"
+
+############################
+# 02. TRANSCRIPTOME ASSEMBLY
+############################
+stringtie_profile: unguided_guided
+gffcompare_profile: default
+
+### StringTie2 settings
+stringtie_settings:
+  unguided_guided:
+    assembly_guided: False                                  # Use un-guided assembly
+    assembly_flags: "-L --rf"                               # Assembly parameters
+    merge_guided: True                                      # Use guided merging with reference GTF
+    merge_flags: "-L"                                       # Merge parameters
+  unguided_unguided:
+    assembly_guided: False
+    assembly_flags: "-L --rf"
+    merge_guided: False
+    merge_flags: "-L"
+  guided_guided:
+    assembly_guided: True
+    assembly_flags: "-L --rf"
+    merge_guided: True
+    merge_flags: "-L"
+  guided_unguided:
+    assembly_guided: True
+    assembly_flags: "-L --rf"
+    merge_guided: False
+    merge_flags: "-L"
+
+### gffcompare settings
+gffcompare_settings:
+  default:
+    gffcompare_flags: "-T"
+  strict:
+    gffcompare_flags: "--strict-match -e 50 -d 50 -T"
+
+  
+############################
+# 03. Artifact Removal
+############################
+pigeon_profile: default
+
+### Pigeon settings
+pigeon_settings:
+  default: {}
+
+############################
+# 04. ORF Identification
+############################
+orfannotate_profile: default
+orf_filter_profile: default
+
+### ORFannotate settings
+orfannotate_settings:
+  default:
+    version: "v1.0.0"
+    gffread_clean: True
+
+### ORF Filter settings
+orf_filter_settings:
+  default:
+    valid_ref_gene_type: ["protein_coding"]
+    valid_ref_tx_type: ["protein_coding"]
+    valid_orfannotate_type: ["coding"]
+    in_ref_filter: ""
+    
+############################
+# 05. Truncation
+############################
+gtxcutr_profile: default
+
+### gtxcutr settings
+gtxcutr_settings:
+  default:
+    merge_distance: 200
+    genome: "hg38"

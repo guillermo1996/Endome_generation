@@ -1,0 +1,7 @@
+name: pigeon
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - pbpigeon=1.4.0
