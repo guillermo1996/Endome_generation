@@ -43,14 +43,14 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/snakefile-refactor/results/Ebbert.control.k14/04-ORF_Identification/ORF_Category/Ebbert.control_orf.gtf"),
+    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_d7dc/ORF_Category/Ebbert.control_orf.gtf"),
     output = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/Ebbert.control.orf_filter.gtf"),
     params = list(
       main_config = "cfg",
-      valid_ref_gene_type = c("protein_coding"),
-      valid_ref_tx_type = c("protein_coding"),
+      valid_ref_gene_type = c("all"),
+      valid_ref_tx_type = c("all"),
       valid_orfannotate_type = c("coding"),
-      in_ref_filter = TRUE
+      in_ref_filter = ""
     )
   )
 }
@@ -76,7 +76,7 @@ input_gtf_path <- snakemake@input$gtf
 output_gtf_path <- snakemake@output$gtf
 
 #### Create output directory
-dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
+# dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Script Parameters ----
@@ -112,7 +112,23 @@ if(main_config == "pc"){
 }
 
 #----------------------------------------------------------------------------- #
-## 2.2 Apply the filterst o extract the valid transcripts ----
+## 2.2 Apply the filters o extract the valid transcripts ----
+
+### GR: If "ref_gene_type" is not found, we are dealing with the reference
+### annotation. Modify their columns so that the same logic can be applied on
+### later steps
+if(!"ref_gene_type" %in% colnames(mcols(gtf))){
+  if(valid_orfannotate_type == "coding"){
+    valid_ref_gene_type = c("protein_coding")
+    valid_ref_tx_type = c("protein_coding")
+  }
+  
+  mcols(gtf)["ref_gene_type"] <- mcols(gtf)["gene_type"]
+  mcols(gtf)["ref_tx_type"] <- mcols(gtf)["transcript_type"]
+  valid_orfannotate_type <- ""
+  mcols(gtf)["orfannotate_type"] <- ""
+  mcols(gtf)["in_ref"] <- ""
+}
 
 ### GR: Note that for each of the `_type` filters, the value "all" can be
 ### provided to ignore any filtering. The filter `in_ref` removes every entry

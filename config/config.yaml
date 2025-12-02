@@ -14,7 +14,7 @@ ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.p
 ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
 
 ### Input samples
-input_dataset: ["Ebbert"]
+input_dataset: ["Ebbert", "Wood"]
 input_group: ["control"]
 
 #### Ebbert Data
@@ -35,17 +35,45 @@ case_samples_ebbert:
   - sample_1186_PAM43869
   - sample_1291_PAG71816
 
+#### Wood Data
+input_dir_wood: "/home/MinaRyten/hannah/Nanopore_Analysis"
+control_samples_wood:
+  - LIB01_PDC029_F_CTX
+  - LIB03_C072_F_CTX
+  - LIB05_PDC085_F_CTX
+  - LIB08_PDC023_F_CTX
+  - LIB10_C046_F_CTX
+  - LIB11_C049_F_CTX
+  - LIB14_C036_SN
+  - LIB15_PDC029_SN
+  - LIB17_C074_SN
+  - LIB20_C043_SN
+  - LIB21_C049_SN
+  - LIB24_C075_SN
+
+case_samples_wood:
+  - LIB02_PD0612_F_CTX
+  - LIB04_PD0822_F_CTX
+  - LIB06_PD0590_F_CTX
+  - LIB07_PD0913_F_CTX
+  - LIB09_PD0109_F_CTX
+  - LIB12_PD0687_F_CTX
+  - LIB13_PD0945_SN
+  - LIB16_PD0917_SN
+  - LIB18_PD0086_SN
+  - LIB19_PD0590_SN
+  - LIB22_PD0822_SN
+  - LIB23_PD0596_SN
+
 ### Output Data
 main_output_path: "debug_results"
-log_path: "outputs/logs"
-benchmark_path: "outputs/benchmarks"
+log_path: "00/logs"
+benchmark_path: "00/benchmarks"
 
 ### General Settings
-pc_filter: ["pc"]
+pc_filter: ["pc_custom"]
 trunc_site: ["3p", "5p"]
-trunc_width: [300, 500]
-
-
+trunc_width: [500, 300]
 
 ############################################################
 #                 SOFTWARE CONFIGURATIONS
@@ -54,7 +82,7 @@ trunc_width: [300, 500]
 ############################
 # 00. Testing Pipeline
 ############################
-use_toy_data: True
+use_toy_data: False
 subsample_seed: 1
 subsample_prop: "001" # 0.1%
 
@@ -135,8 +163,8 @@ orfannotate_settings:
 ### ORF Filter settings
 orf_filter_settings:
   default:
-    valid_ref_gene_type: ["protein_coding"]
-    valid_ref_tx_type: ["protein_coding"]
+    valid_ref_gene_type: ["all"]
+    valid_ref_tx_type: ["all"]
     valid_orfannotate_type: ["coding"]
     in_ref_filter: ""
     
@@ -150,3 +178,15 @@ gtxcutr_settings:
   default:
     merge_distance: 200
     genome: "hg38"
+
+############################
+# 06. Evaluation
+############################
+evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG.csv"
+kb_profile: default
+
+### Kallisto bustools (kb) settings
+kb_settings:
+  default:
+    tech: "10xv3"
+    strand: "--fr-stranded"

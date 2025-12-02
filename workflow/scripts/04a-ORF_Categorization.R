@@ -45,13 +45,13 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORFannotate/pigeon.annotated/ORFannotate_annotated_clean.gtf",
+    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/ORFannotate_annotated_clean.gtf",
                  ref_annotation = "~/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf",
-                 protein_fa = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORFannotate/pigeon.annotated/protein.fa",
-                 orf_summary = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORFannotate/pigeon.annotated/ORFannotate_summary.tsv",
-                 pigeon_summary = "~/RytenLab-Research/snakefile-refactor/results_k15/03-Pigeon/Classify_Filter/pigeon.annotated_classification.filtered_lite_classification.txt"),
-    output = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Category/pigeon.annotated_orf.gtf",
-                  isoform_summary = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Category/pigeon.annotated_isoform_summary.tsv"),
+                 protein_fa = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/protein.fa",
+                 orf_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/ORFannotate_summary.tsv",
+                 pigeon_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/03-Artifact_Removal_3b55/Classify_Filter/Ebbert.control.pigeon_classification.filtered_lite_classification.txt"),
+    output = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORF_Category/Ebbert.control_orf.gtf",
+                  isoform_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORF_Category/Ebbert.control_isoform_summary.tsv"),
     threads = 1
   )
 }
@@ -128,7 +128,7 @@ isoform_summary <- gtf_df %>%
   dplyr::filter(type == "transcript") %>%
   dplyr::select(transcript_id, stringtie_gene_id = gene_id, gene_name) %>%
   dplyr::left_join(orf_summary %>%
-                     dplyr::select(transcript_id, has_orf, orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len, coding_class, junction_count, NMD_sensitive),
+                     dplyr::select(transcript_id, has_orf, orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len, coding_class, total_junctions, NMD_sensitive),
                    by = "transcript_id")
 
 ## GR: Append information from the reference annotation.
@@ -154,7 +154,7 @@ isoform_summary <- isoform_summary %>%
                    by = c("transcript_id" = "isoform")) %>%
   dplyr::relocate(transcript_id, gene_id, gene_name, stringtie_gene_id,
                   structural_category, subcategory,
-                  in_ref, has_orf, ref_length, orf_len, utr5_len, utr3_len, junction_count, ref_exons,
+                  in_ref, has_orf, ref_length, orf_len, utr5_len, utr3_len, total_junctions, ref_exons,
                   orfannotate_type, ref_transcript_type, ref_gene_type)
 
 

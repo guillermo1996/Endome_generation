@@ -4,26 +4,29 @@
 
 ## Variables
 ################################################################################
+step05_name = "05-Truncation"
 
 ### Configurations
 gtxcutr_settings = config["gtxcutr_settings"][config["gtxcutr_profile"]]
 
 step05_params = {
-    **gtxcutr_settings,
+    "gtxcutr_settings": gtxcutr_settings,
     **({"toy_data": True} if config.get("use_toy_data", False) else {})
 }
 
-### Compute the step hash
-step05_hash = compute_hash(get_cumulative_params(5))
+### Compute hash and set global parameters
+global_params.update({step05_name: step05_params})
+step05_hash = compute_hash(global_params)
+global_params.update({f"{step05_name}_{step05_hash}": global_params.pop(step05_name)})
 
 ### Paths
-truncation_path = lambda x: Path(results_path) / f"05-Truncation_{step04_hash}" / x
-truncation_logs_path = lambda x: log_path(x, step04_hash)
-truncation_benchmark_path = lambda x: benchmark_path(x, step04_hash)
+truncation_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / x
+truncation_log_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / log_path / x
+truncation_benchmark_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################
-create_save_params_rule(step_num=5, step_name="05-Truncation", step_dir=truncation_path(""), step_params=step05_params)
+create_save_params_rule(step05_name, truncation_path, step05_params, global_params)
 
 ## Rules
 ################################################################################
@@ -36,11 +39,11 @@ rule gtxcutr_truncation:
         fa = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.fa.gz"),
         transcript_overlap = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.overlaps.tsv"),
         merge_table = truncation_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.merge.tsv")
-    log: truncation_logs_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.log")
+    log: truncation_log_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.log")
     benchmark: truncation_benchmark_path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.tsv")
     params:
-        mergeDist = step05_params["merge_distance"],
-        genome = step05_params["genome"]
+        mergeDist = gtxcutr_settings["merge_distance"],
+        genome = gtxcutr_settings["genome"]
     conda: "../envs/gtxcutr.yaml"
     threads: 12
     script: "../scripts/05a-gtxcutr.R" # Modified `txcutr.R` script to include my version of the package

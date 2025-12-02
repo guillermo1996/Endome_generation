@@ -4,25 +4,27 @@
 
 ## Variables
 ################################################################################
+step01_name = "01-Alignment"
 
-### Configurations
+### Settings
 minimap2_settings = config["minimap2_settings"][config["minimap2_profile"]]
-
 step01_params = {
-    **minimap2_settings
+    "minimap2_settings": minimap2_settings
 }
 
-### Compute the step hash
-step01_hash = compute_hash(step01_params)
+### Compute hash and set global parameters
+global_params.update({step01_name: step01_params})
+step01_hash = compute_hash(global_params)
+global_params.update({f"{step01_name}_{step01_hash}": global_params.pop(step01_name)})
 
 ### Paths
-alignment_path = lambda x: Path(results_path) / f"01-Alignment_{step01_hash}" / x
-alignment_logs_path = lambda x: log_path(x, step01_hash)
-alignment_benchmark_path = lambda x: benchmark_path(x, step01_hash)
+alignment_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / x
+alignment_log_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / log_path / x
+alignment_benchmark_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################
-create_save_params_rule(step_num=1, step_name="01-Alignment", step_dir=alignment_path(""), step_params=step01_params)
+create_save_params_rule(step01_name, alignment_path, step01_params, global_params)
 
 def get_input_fastq(wildcards):
     endome_samples_df = generate_input_samples_df(wildcards.dataset, wildcards.group)
@@ -37,14 +39,13 @@ rule minimap2_align:
     input:
         genome = ref_genome,
         fastq = get_input_fastq,
-        params_file = alignment_path("parameters.yaml")
     output: 
         sam = temporary(alignment_path("Minimap2/{sample}.sam"))
-    log: alignment_logs_path("Minimap2/{sample}.log")
+    log: alignment_log_path("Minimap2/{sample}.log")
     benchmark: alignment_benchmark_path("Minimap2/{sample}.tsv")
     params:
-        k = step01_params["minimap2_kmer"],
-        flags = step01_params["minimap2_flags"]
+        k = minimap2_settings["minimap2_kmer"],
+        flags = minimap2_settings["minimap2_flags"]
     threads: 8
     conda: "../envs/minimap2.yaml",
     shell: "minimap2 {params.flags} -k {params.k} -t {threads} -o {output} {input.genome} {input.fastq} 2>&1 | tee {log}"
@@ -55,7 +56,7 @@ rule samtools_sort:
         sam = rules.minimap2_align.output.sam
     output: 
         bam = alignment_path("Samtools_sort/{sample}_sorted.bam"),
-    log: alignment_logs_path("Samtools_sort/{sample}.log"),
+    log: alignment_log_path("Samtools_sort/{sample}.log"),
     benchmark: alignment_benchmark_path("Samtools_sort/{sample}.tsv"),
     resources:
         mem="10G"
@@ -65,14 +66,20 @@ rule samtools_sort:
         "samtools view -b -u -@{threads} {input} | "
         "samtools sort -@{threads} -m {resources.mem} -T tmp_{wildcards.sample} -o {output.bam}"
 
+def subsamples_samples(wildcards):
+    if wildcards.dataset == "Ebbert":
+        return rules.samtools_sort.output.bam
+    elif wildcards.dataset == "Wood":
+        return Path(config["input_dir_wood"]) / wildcards.sample / "Mapping" / f"{wildcards.sample}_minimap.bam"
+
 rule samtools_subsample:
     message: """--- Subsampling BAM files - {wildcards.sample} ----"""
     input:
-        bam = rules.samtools_sort.output.bam
+        bam = subsamples_samples
     output:
         bam = alignment_path("Samtools_subsample/{sample}_sorted.bam"),
         bai = alignment_path("Samtools_subsample/{sample}_sorted.bam.bai")
-    log: alignment_logs_path("Samtools_subsample/{sample}.log"),
+    log: alignment_log_path("Samtools_subsample/{sample}.log"),
     benchmark: alignment_benchmark_path("Samtools_subsample/{sample}.tsv"),
     params:
         seed = config.get("subsample_seed", 0),

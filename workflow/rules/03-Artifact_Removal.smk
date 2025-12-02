@@ -4,26 +4,30 @@
 
 ## Variables
 ################################################################################
+step03_name = "03-Artifact_Removal"
 
 ### Configurations
 pigeon_settings = config["pigeon_settings"][config["pigeon_profile"]]
 
 step03_params = {
-    **pigeon_settings,
+    "pigeon_settings": pigeon_settings,
     **({"toy_data": True} if config.get("use_toy_data", False) else {})
 }
 
-### Compute the step hash
-step03_hash = compute_hash(get_cumulative_params(3))
+### Compute hash and set global parameters
+global_params.update({step03_name: step03_params})
+step03_hash = compute_hash(global_params)
+global_params.update({f"{step03_name}_{step03_hash}": global_params.pop(step03_name)})
 
 ### Paths
-artifact_path = lambda x: Path(results_path) / f"03-Artifact_Removal_{step03_hash}" / x
-artifact_logs_path = lambda x: log_path(x, step03_hash)
-artifact_benchmark_path = lambda x: benchmark_path(x, step03_hash)
+artifact_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / x
+artifact_log_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / log_path / x
+artifact_benchmark_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / benchmark_path / x
+
 
 ## Functions
 ################################################################################
-create_save_params_rule(step_num=3, step_name="03-Artifact_Removal", step_dir=artifact_path(""), step_params=step03_params)
+create_save_params_rule(step03_name, artifact_path, step03_params, global_params)
 
 def add_suffix_to_filename(path, suffix):
     base, ext = os.path.splitext(path)
@@ -54,7 +58,7 @@ rule pigeon_prepare:
         genome = ref_genome
     output: 
         sorted_gtf = artifact_path("Prepare/{prefix}.pigeon.sorted.gtf")
-    log: artifact_logs_path("Pigeon_prepare/{prefix}.log")
+    log: artifact_log_path("Pigeon_prepare/{prefix}.log")
     benchmark: artifact_benchmark_path("Pigeon_prepare/{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.annotation, ".sorted")
@@ -72,7 +76,7 @@ rule pigeon_classify:
         genome = ref_genome
     output: 
         classification_txt = artifact_path("Classify_Filter/{prefix}.pigeon_classification.txt")
-    log: artifact_logs_path("Pigeon/classify_{prefix}.log")
+    log: artifact_log_path("Pigeon/classify_{prefix}.log")
     benchmark: artifact_benchmark_path("Pigeon/classify_{prefix}.pigeon.tsv")
     params:
         pigeon_output = lambda w, output: Path(output.classification_txt).parent
@@ -90,7 +94,7 @@ rule pigeon_filter:
     output:
         filtered_gtf = artifact_path("Classify_Filter/{prefix}.pigeon.sorted.filtered.gtf"),
         pigeon_summary = artifact_path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
-    log: artifact_logs_path("Pigeon/filter_{prefix}.log")
+    log: artifact_log_path("Pigeon/filter_{prefix}.log")
     benchmark: artifact_benchmark_path("Pigeon/filter_{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.sorted_annotation, ".filtered_lite")

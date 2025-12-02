@@ -4,6 +4,7 @@ import re
 import json
 import hashlib
 import yaml
+import copy
 
 from sys import stderr, stdout
 from datetime import datetime
@@ -20,10 +21,10 @@ ref_annotation = config["ref_annotation"]
 ################################################################################
 main_output_path = config["main_output_path"] # "results"
 project_output_path = f"{{dataset}}.{{group}}"
-results_path = Path(main_output_path) / project_output_path
 
-log_path = lambda x, hash = "0000": Path(results_path) / config["log_path"] / f"{str(Path(x).parent)}_{hash}" / Path(x).name
-benchmark_path = lambda x, hash = "0000": Path(results_path) / config["benchmark_path"] / f"{str(Path(x).parent)}_{hash}" / Path(x).name
+results_path = Path(main_output_path) / project_output_path
+log_path = config["log_path"]
+benchmark_path = config["benchmark_path"]
 
 ################################################################################
 ## Helper Functions
@@ -71,41 +72,91 @@ def generate_input_samples_df(dataset, group):
     # Return the data.frame
     endome_samples_df = pd.DataFrame(endome_samples)
     return(endome_samples_df)
+yaml.Dumper.ignore_aliases = lambda *args: True
+def create_save_params_rule(step_name, step_dir, step_params, global_params):
+    def previous_params(global_params, step_params):
+        new_global_params = global_params.copy()
+        for k in step_params.keys():
+            new_global_params.pop(k, None)
 
-def create_save_params_rule(step_num, step_name, step_dir, step_params):
+    def filter_steps(d, step_num):
+        out = {}
+        for key, val in d.items():
+            prefix = key.split("-")[0]        # e.g. "01"
+            if prefix.isdigit() and int(prefix) <= step_num:
+                out[key] = val
+        return out
+
+    # Extract step number from prefix "XX-Name"
+    match = re.match(r"^(\d{2})-", step_name)
+    if not match:
+        raise ValueError(f"step_name must start with 'NN-' (00-99): received {step_name}")
+    step_num = int(match.group(1))
+    
+    # Resolve the directory by calling the function )
+    step_dir = step_dir("")
+    previous_global_dict = previous_params(global_params, step_params)
+
     # Dynamically create a rule to save parameters for a specific step
     rule:
         name: f"save_step{step_num}_params"
-        message: f"--- Saving parameters to parameters.yaml ----"
+        message: f"--- Saving parameters to parameters.yaml ---"
         output:
             params_file = f"{step_dir}/parameters.yaml"
         run:
-            cumulative_params = get_cumulative_params(step_num)
-            previous_hash = compute_hash(get_cumulative_params(step_num-1))
+            previous_hash = compute_hash(previous_global_dict)
 
             param_data = {
                 "step_dir": step_name,
-                "run_id": compute_hash(cumulative_params),
+                "run_id": compute_hash(global_params),
+                # "inherited_from_run_id": previous_hash if previous_global_dict else "",
                 "step_parameters": step_params,
-                "all_parameters": cumulative_params
-                # "hash_input": json.dumps(cumulative_params, sort_keys=True)
+                "all_parameters": filter_steps(global_params, step_num)
             }
 
-            if previous_hash:
-                param_data["inherited_from_run_id"] = previous_hash
-            
             with open(output.params_file, "w") as f:
                 yaml.dump(param_data, f, default_flow_style=False, sort_keys=False)
 
 def compute_hash(params_dict):
     """Generate a short hash from parameters"""
-    param_str = json.dumps(params_dict, sort_keys=True)
-    return hashlib.md5(param_str.encode()).hexdigest()[:4]
+    if not params_dict:
+        return ""
+        
+    # Ignore step naming (only care about the configurations)
+    values_only = list(params_dict.values())
+    values_only = [json.dumps(v, sort_keys=True) for v in values_only]
+    values_only.sort()
 
-def get_cumulative_params(step_num):
-    cumulative = {}
-    for i in range(1, step_num + 1):
-        varname = f"step{i:02d}_params"
-        if varname in globals():
-            cumulative.update(globals()[varname])
-    return cumulative
+    merged = "[" + ",".join(values_only) + "]"
+    return hashlib.md5(merged.encode()).hexdigest()[:4]
+
+def pretty_print_dict(d):
+    #take empty string
+    pretty_dict = ''  
+    
+    #get items for dict
+    for k, v in d.items():
+        pretty_dict += f'{k}: \n'
+        for value in v:
+            pretty_dict += f'    {value}: {v[value]}\n'
+    #return result
+    return pretty_dict
+
+def dict_to_readable(d, indent=2):
+    lines = []
+    for i, (key, value) in enumerate(d.items()):
+        if indent == 0 and i > 0:  # Add blank line before top-level keys (except first)
+            lines.append("")
+        
+        if isinstance(value, dict):
+            lines.append("  " * indent + f"{key}:")
+            lines.append(dict_to_readable(value, indent + 1))
+        else:
+            lines.append("  " * indent + f"{key}: {value}")
+    return "\n".join(lines)
+
+
+################################################################################
+## Global variables
+################################################################################
+global_params = {}
