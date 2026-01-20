@@ -65,4 +65,4 @@ rule all:
         run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = DATASETS, group = GROUPS, orf_filtration = ORF_FILTER, width = WIDTHS, txEnd = TRUNCS, sample_id = evaluation_samples.index),
         # run_info_gencode_all = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = "gencode", group = "none", orf_filtration = "all", width = "0", txEnd = "0p", sample_id = evaluation_samples.index),
         # run_info_gencode_pc = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filtration}.w{width}.{txEnd}/{sample_id}/run_info.json"), dataset = "gencode", group = "none", orf_filtration = "pc", width = "0", txEnd = "0p", sample_id = evaluation_samples.index),
-    default_target: True
+    default_target: Tru

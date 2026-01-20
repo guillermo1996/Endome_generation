@@ -52,29 +52,51 @@ wildcard_constraints:
     group = "control|case|control_case|none",
     txEnd = "\\dp"
 
+def generate_param_files(execute = False):
+    if not execute:
+        return []
+
+    param_dict = {
+        "step01_params": expand(alignment_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step02_params": expand(transcriptome_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step03_params": expand(artifact_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step04_params": expand(orf_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step05_params": expand(truncation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step06_params": expand(evaluation_path("parameters.yaml"), dataset = input_dataset, group = input_group)
+    }
+
+    return sum(param_dict.values(), [])
+
+def run_gencode(execute = False):
+    if not execute:
+        return []
+    
+    gencode_dict = {
+        "truncated_gtf_gencode": expand(truncation_path("gtxcutr/gencode.none.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
+            dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site),
+        "run_info_gencode": expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
+            dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
+        "run_info_gencode_full": expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"),
+            dataset = "gencode", group = "none", orf_filter = "pc", width = 0, txEnd = "0p", sample_id = evaluation_samples.index),
+    }
+
+    return sum(gencode_dict.values(), [])
+    
 rule all:
     input:
-        step01_params = expand(alignment_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        step02_params = expand(transcriptome_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        step03_params = expand(artifact_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        step04_params = expand(orf_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        step05_params = expand(truncation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        step06_params = expand(evaluation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        # gffcompare_clean = expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"),
-        #     dataset = input_dataset, group = input_group),
-        # pigeon_filtered_gtf = expand(artifact_path("Classify_Filter/{dataset}.{group}.pigeon.sorted.filtered.gtf"),
-        #     dataset = input_dataset, group = input_group),
-        # orf_filtered_gtf = expand(orf_path("ORF_Filtration/{dataset}.{group}.{orf_filter}.orf_filter.gtf"),
-        # #     dataset = input_dataset, group = input_group, orf_filter = pc_filter),
-        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"), 
+        # Generate parameters
+        parameters = generate_param_files(execute = False),
+
+        # Run gencode
+        gencode = run_gencode(execute = False),
+
+        # Truncated GTFs
+        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+
+        # Kallisto Bus
         run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
-        # truncated_gtf_gencode = expand(truncation_path("gtxcutr/gencode.none.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-        #     dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site),
-        # run_info_gencode = expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
-        #     dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
-        # run_info_gencode_full = expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
-        #     dataset = "gencode", group = "none", orf_filter = "pc", width = 0, txEnd = "0p", sample_id = evaluation_samples.index),
+
 
     default_target: True

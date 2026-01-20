@@ -14,7 +14,7 @@ ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.p
 ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
 
 ### Input samples
-input_dataset: ["Ebbert", "Wood"]
+input_dataset: ["Ebbert"]
 input_group: ["control"]
 
 #### Ebbert Data
@@ -72,8 +72,8 @@ benchmark_path: "00/benchmarks"
 
 ### General Settings
 pc_filter: ["pc_custom"]
-trunc_site: ["3p", "5p"]
-trunc_width: [500, 300]
+trunc_site: ["3p"]
+trunc_width: [500]
 
 ############################################################
 #                 SOFTWARE CONFIGURATIONS
@@ -182,7 +182,7 @@ gtxcutr_settings:
 ############################
 # 06. Evaluation
 ############################
-evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG.csv"
+evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
 kb_profile: default
 
 ### Kallisto bustools (kb) settings
@@ -190,3 +190,30 @@ kb_settings:
   default:
     tech: "10xv3"
     strand: "--fr-stranded"
+
+
+############################################################
+#                 scUTRquant Configurations
+############################################################
+scUTRquant_config:
+  dataset_name: "output"
+  sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
+  sample_regex: ".*"
+  cell_annots: null
+  cell_annots_key: "cell_id"
+  exclude_unannotated_cells: False
+  target: "Ebbert.control.pc_custom.w500.3p"
+  tech: "10xv3"
+  strand: "--fr-stranded"
+  output_type:
+    - "txs"
+    - "genes"
+  output_format:
+    - "sce"
+  tmp_dir: "/home/drihome/MRGuillermoPerez/tmp"
+  bx_whitelist: null
+  correct_bus: True
+  min_umis: 500
+  targets_config: "config/utrome_config.yaml"
+  use_hdf5: False
+  include_reports: True

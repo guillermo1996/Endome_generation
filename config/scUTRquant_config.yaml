@@ -1,0 +1,18 @@
+dataset_name: "output"
+sample_regex: ".*"
+cell_annots: null
+cell_annots_key: "cell_id"
+exclude_unannotated_cells: False
+target: "utrome_mm10_v2"
+output_type:
+  - "txs"
+  - "genes"
+output_format:
+  - "sce"
+tmp_dir: "/home/drihome/MRGuillermoPerez/tmp"
+bx_whitelist: null
+correct_bus: True
+min_umis: 500
+targets_config: "config/utrome_config.yaml"
+use_hdf5: False
+include_reports: True
