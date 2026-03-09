@@ -1,28 +1,84 @@
 ##########################################################
-# Main config file for Endome generation pipeline 
+# Main config file for Endome generation pipeline
+#
+# PROFILE PATTERN
+# ---------------
+# Each tool has an active "<tool>_profile" key that selects a named entry from
+# the corresponding "<tool>_settings" block. To switch configurations, change
+# only the profile key. Feel free to add custom profiles that match your needs.
+#
+# Example: to switch ORF filtering, simply change "orf_filter_profile": pc → all
+#
+#
+# COMBINATORIAL PARAMETERS 
+# ----------------------------
+# Four parameters accept lists and drive a combinatorial expansion:
+#
+#   input_dataset  — which dataset(s) to process [Wood/Ebbert/Gencode]
+#   input_group    — which sample group(s) within each dataset [case/control/both]
+#   trunc_site     — truncation site(s) to apply [3'/5']
+#   trunc_width    — truncation window width(s) in bp [integer > 150]
+#
+# The pipeline runs once for every combination of these values.
+#
+# Example — 4 runs total:
+#   input_dataset: ["Wood", "Ebbert"]
+#   input_group:   ["control"]
+#   trunc_site:    ["3p", "5p"]
+#   trunc_width:   [500]
+#
+# All other parameters apply uniformly to every run.
 ##########################################################
 
+# Folder/file structure:
+#   {main_output_path}/
+#   └── {input_dataset}.{input_group}/       # one folder per dataset × group combination
+#       ├── 01-Alignment[_{hash}]/
+#       ├── ...
+#       └── 05-Truncation[_{hash}]/
+#           ├── {input_dataset}.{input_group}.{orf_filter_profile}.{trunc_site_1}.w{trunc_width}.gtf   # trunc_site × trunc_width
+#           └── {input_dataset}.{input_group}.{orf_filter_profile}.{trunc_site_2}.w{trunc_width}.gtf   # expand into files, not folders
 
 ############################
-# 01. DATA INPUTS
+# 01. GENERAL RUN SETTINGS
 ############################
 
-### Path to reference genome
+## Reference genome and annotation (GENCODE GRCh38 / v48)
 ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.primary_assembly.genome.fa"
-
-### Path to reference annotation
 ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
 
-### General Settings
-trunc_site: ["3p"]
-trunc_width: [500]
+## 3'/5' truncation parameters
+trunc_site:  ["3p"] # Truncation site: "3p" or "5p"
+trunc_width: [500] # Window size (bp) around truncation site
 
-### Input samples
-input_dataset: ["Wood"]
-input_group: ["control"]
+## Output directories
+main_output_path: "results"
+log_path: ".logs"
+benchmark_path: ".benchmarks"
 
-#### Ebbert Data
+## Output folder hashing
+### If True, each step's output folder gets a 4-character hash suffix derived
+### from the parameters used in that step. e.g. "01-Alignment_a3f9" instead of
+### "01-Alignment"
+###
+### Set to True for safe iterative experimentation, as changing any tool
+### parameter will produce a new folder, leaving prior results intact. Set to
+### False for human readable folder names, but pipeline might NOT detect
+### parameter changes within a step. Recommended for finalized and fixed
+### configurations.
+use_hash: True
+
+############################
+# 02. INPUT DATASETS
+############################
+
+## Input dataset and samples to generate the ENDome
+input_dataset: ["Wood"] # Dataset to employ to generate the ENDome
+input_group: ["control"] # Sample group to employ to generate the ENDome
+
+### Ebbert (2023) long-read public data
 input_dir_ebbert: "/home/MinaRyten/Emil/public_data/long-read/Ebbert_2023"
+
 control_samples_ebbert:
   - sample_1131_PAM44580
   - sample_1304_PAM44487
@@ -39,8 +95,9 @@ case_samples_ebbert:
   - sample_1186_PAM43869
   - sample_1291_PAG71816
 
-#### Wood Data
+### Wood Nanopore data
 input_dir_wood: "/home/MinaRyten/hannah/Nanopore_Analysis"
+
 control_samples_wood:
   - LIB01_PDC029_F_CTX
   - LIB03_C072_F_CTX
@@ -69,137 +126,151 @@ case_samples_wood:
   - LIB22_PD0822_SN
   - LIB23_PD0596_SN
 
-### Output Data
-main_output_path: "results"
-log_path: ".logs"
-benchmark_path: ".benchmarks"
-
 
 ############################################################
-#                 SOFTWARE CONFIGURATIONS
+#              PIPELINE STEP CONFIGURATIONS
+#
+# Steps follow the order of execution: 01 Alignment → 02 Assembly → 
+# 03 Artifact Removal → 04 ORF Identification → 05 Truncation → 06 Evaluation
 ############################################################
 
 ############################
-# 00. Testing Pipeline
+# 00. TESTING / DEV MODE
 ############################
+# Set use_toy_data: True to run a fast subsampled test of the pipeline.
+# subsample_prop uses a string code: "001" = 0.1%, "010" = 1%, etc.
 use_toy_data: False
-subsample_seed: 1
-subsample_prop: "001" # 0.1%
+subsample_seed:  1
+subsample_prop:  "001"        # 0.1% of reads
 
-assembly_test: "st_ungui_gui"
+
 
 ############################
 # 01. ALIGNMENT
 ############################
-minimap2_profile: default
+minimap2_profile: default     # Options: default | k15
 
-### Minimap2 settings
 minimap2_settings:
   default:
-    minimap2_kmer: 14                                       # K-mer size for seeding alignments
-    minimap2_flags: "-ax splice -uf --MD --secondary=no"    # Alignment mode and additional flags
-  k15:
-    minimap2_kmer: 15
+    minimap2_kmer:  14
     minimap2_flags: "-ax splice -uf --MD --secondary=no"
+  k15:
+    minimap2_kmer:  15
+    minimap2_flags: "-ax splice -uf --MD --secondary=no"
+
 
 ############################
 # 02. TRANSCRIPTOME ASSEMBLY
 ############################
-stringtie_profile: unguided_guided
+# Profile naming convention: <assembly_mode>_<merge_mode>
+#   "unguided" = run without reference GTF
+#   "guided"   = run with reference GTF (-G flag)
+
+stringtie_profile:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
 gffcompare_profile: default
 
-### StringTie2 settings
 stringtie_settings:
   unguided_guided:
-    assembly_guided: False                                  # Use un-guided assembly
-    assembly_flags: "-L --rf"                               # Assembly parameters
-    merge_guided: True                                      # Use guided merging with reference GTF
-    merge_flags: "-L"                                       # Merge parameters
+    assembly_guided: False
+    assembly_flags:  "-L --rf"
+    merge_guided:    True 
+    merge_flags:     "-L"
   unguided_unguided:
     assembly_guided: False
-    assembly_flags: "-L --rf"
-    merge_guided: False
-    merge_flags: "-L"
+    assembly_flags:  "-L --rf"
+    merge_guided:    False
+    merge_flags:     "-L"
   guided_guided:
     assembly_guided: True
-    assembly_flags: "-L --rf"
-    merge_guided: True
-    merge_flags: "-L"
+    assembly_flags:  "-L --rf"
+    merge_guided:    True
+    merge_flags:     "-L"
   guided_unguided:
     assembly_guided: True
-    assembly_flags: "-L --rf"
-    merge_guided: False
-    merge_flags: "-L"
+    assembly_flags:  "-L --rf"
+    merge_guided:    False
+    merge_flags:     "-L"
 
-### gffcompare settings
 gffcompare_settings:
   default:
     gffcompare_flags: "-T"
-  strict:
+  strict:                              # Tighter exon/intron boundary tolerances
     gffcompare_flags: "--strict-match -e 50 -d 50 -T"
 
-  
 ############################
-# 03. Artifact Removal
+# 03. ARTIFACT REMOVAL
 ############################
-pigeon_profile: default
+pigeon_profile: default  
 
-### Pigeon settings
 pigeon_settings:
-  default: {}
+  default: {} 
 
 ############################
-# 04. ORF Identification
+# 04. ORF IDENTIFICATION
 ############################
-orfannotate_profile: default
-orf_filter_profile: pc
+orfannotate_profile: default 
+orf_filter_profile:  pc
 
-### ORFannotate settings
 orfannotate_settings:
   default:
     version: "v1.1.0"
     gffread_clean: False
 
-### ORF Filter settings
+### ORF filter profiles control which gene/transcript/ORF types are retained
 orf_filter_settings:
-  all:
-    valid_ref_gene_type: ["all"]
-    valid_ref_tx_type: ["all"]
-    valid_orfannotate_type: ["all"]
-    in_ref_filter: ""
-  orfann_coding:
-    valid_ref_gene_type: ["all"]
-    valid_ref_tx_type: ["all"]
-    valid_orfannotate_type: ["coding"]
-    in_ref_filter: ""
-  pc:
-    valid_ref_gene_type: ["protein_coding"]
-    valid_ref_tx_type: ["protein_coding"]
-    valid_orfannotate_type: ["coding"]
-    in_ref_filter: "True"
-    
+  all: # No filtering — keep all ORF classes and biotypes
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["all"]
+    in_ref_filter:             ""
+  orfann_coding: # Keep only ORFannotate-classified coding transcripts
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["coding"]
+    in_ref_filter:             ""
+  pc: # Strict: protein-coding biotype + coding ORF + in-reference
+    valid_ref_gene_type:       ["protein_coding"]
+    valid_ref_tx_type:         ["protein_coding"]
+    valid_orfannotate_type:    ["coding"]
+    in_ref_filter:             "True"
+
 ############################
-# 05. Truncation
+# 05. TRUNCATION
 ############################
 gtxcutr_profile: default
 
-### gtxcutr settings
 gtxcutr_settings:
   default:
-    merge_distance: 200
+    merge_distance: 200 # Max distance (bp) between truncation sites to merge
     genome: "hg38"
 
 ############################
-# 06. Evaluation
+# 06. EVALUATION
 ############################
+# Sample sheet used for evaluation (snRNA-seq cell × barcode metadata)
 evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
-kb_profile: default
 
-### Kallisto bustools (kb) settings
+kb_profile: default          # Options: default
+
 kb_settings:
   default:
-    tech: "10xv3"
+    tech:   "10xv3"
     strand: "--fr-stranded"
+
+############################
+# 06. EVALUATION
+############################
+# Sample sheet used for evaluation (snRNA-seq cell × barcode metadata)
+evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
+
+kb_profile: default
+
+kb_settings:
+  default:
+    tech:   "10xv3"
+    strand: "--fr-stranded"
+
+
 
 
 ############################################################
