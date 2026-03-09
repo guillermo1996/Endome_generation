@@ -1,9 +1,0 @@
-name: kallisto
-channels:
-  - conda-forge
-  - bioconda
-  - defaults
-  - merv
-dependencies:
-  - merv::kallisto=0.46.2sq
-  - bustools=0.40.0

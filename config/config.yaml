@@ -13,8 +13,12 @@ ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.p
 ### Path to reference annotation
 ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
 
+### General Settings
+trunc_site: ["3p"]
+trunc_width: [500]
+
 ### Input samples
-input_dataset: ["Ebbert"]
+input_dataset: ["Wood"]
 input_group: ["control"]
 
 #### Ebbert Data
@@ -66,14 +70,10 @@ case_samples_wood:
   - LIB23_PD0596_SN
 
 ### Output Data
-main_output_path: "debug_results"
-log_path: "00/logs"
-benchmark_path: "00/benchmarks"
+main_output_path: "results"
+log_path: ".logs"
+benchmark_path: ".benchmarks"
 
-### General Settings
-pc_filter: ["pc_custom"]
-trunc_site: ["3p"]
-trunc_width: [500]
 
 ############################################################
 #                 SOFTWARE CONFIGURATIONS
@@ -152,21 +152,31 @@ pigeon_settings:
 # 04. ORF Identification
 ############################
 orfannotate_profile: default
-orf_filter_profile: default
+orf_filter_profile: pc
 
 ### ORFannotate settings
 orfannotate_settings:
   default:
-    version: "v1.0.0"
-    gffread_clean: True
+    version: "v1.1.0"
+    gffread_clean: False
 
 ### ORF Filter settings
 orf_filter_settings:
-  default:
+  all:
+    valid_ref_gene_type: ["all"]
+    valid_ref_tx_type: ["all"]
+    valid_orfannotate_type: ["all"]
+    in_ref_filter: ""
+  orfann_coding:
     valid_ref_gene_type: ["all"]
     valid_ref_tx_type: ["all"]
     valid_orfannotate_type: ["coding"]
     in_ref_filter: ""
+  pc:
+    valid_ref_gene_type: ["protein_coding"]
+    valid_ref_tx_type: ["protein_coding"]
+    valid_orfannotate_type: ["coding"]
+    in_ref_filter: "True"
     
 ############################
 # 05. Truncation

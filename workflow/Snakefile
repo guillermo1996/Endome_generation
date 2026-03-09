@@ -6,6 +6,8 @@
 from snakemake.utils import min_version
 from snakemake.utils import validate
 
+from datetime import datetime
+
 # Set the minimum snakemake version
 min_version("8.30.0")
 
@@ -16,13 +18,22 @@ configfile: "config/config.yaml"
 
 # load rules
 # -----------------------------------------------------
+
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 00-Common")
 include: "rules/00-Common.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 01-Alignment")
 include: "rules/01-Alignment.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 02-Transcriptome_Assembly")
 include: "rules/02-Transcriptome_Assembly.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 03-Artifact_Removal")
 include: "rules/03-Artifact_Removal.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 04-ORF_Identification")
 include: "rules/04-ORF_Identification.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 05-Truncation")
 include: "rules/05-Truncation.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 06-Evaluation")
 include: "rules/06-Evaluation.smk"
+print(f"[{datetime.now().isoformat(timespec='seconds')}] starting else")
 
 # optional messages, log and error handling
 # -----------------------------------------------------
@@ -43,7 +54,7 @@ onerror:
 # -----------------------------------------------------
 input_dataset = config.get("input_dataset", ["Ebbert"])
 input_group = config.get("input_group", ["control"])
-pc_filter = config.get("pc_filter", ["pc"])
+pc_filter = config.get("orf_filter_profile", ["pc"])
 trunc_site = config.get("trunc_site", ["3p"])
 trunc_width = config.get("trunc_width", [500])
 
@@ -62,7 +73,7 @@ def generate_param_files(execute = False):
         "step03_params": expand(artifact_path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step04_params": expand(orf_path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step05_params": expand(truncation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step06_params": expand(evaluation_path("parameters.yaml"), dataset = input_dataset, group = input_group)
+        "step06_params": expand(evaluation_path(f"parameters.yaml"), dataset = input_dataset, group = input_group)
     }
 
     return sum(param_dict.values(), [])
@@ -82,21 +93,35 @@ def run_gencode(execute = False):
 
     return sum(gencode_dict.values(), [])
     
+# rule all:
+#     input:
+#         # Generate parameters
+#         parameters = generate_param_files(execute = False),
+
+#         # Run gencode
+#         gencode = run_gencode(execute = False),
+
+#         # Truncated GTFs
+#         truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
+#             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+
+#         # Kallisto Bus
+#         run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
+#             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
+
+
+#     default_target: True
+
 rule all:
     input:
         # Generate parameters
-        parameters = generate_param_files(execute = False),
-
-        # Run gencode
-        gencode = run_gencode(execute = False),
-
-        # Truncated GTFs
+        parameters = generate_param_files(execute = True),
+        # Truncate GTFs
         truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-            dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-
-        # Kallisto Bus
-        run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
-            dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
-
-
+            dataset = input_dataset,
+            group = input_group,
+            orf_filter = pc_filter,
+            width = trunc_width,
+            txEnd = trunc_site)
+        
     default_target: True

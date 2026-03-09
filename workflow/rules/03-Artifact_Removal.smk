@@ -20,10 +20,9 @@ step03_hash = compute_hash(global_params)
 global_params.update({f"{step03_name}_{step03_hash}": global_params.pop(step03_name)})
 
 ### Paths
-artifact_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / x
-artifact_log_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / log_path / x
-artifact_benchmark_path = lambda x: Path(results_path) / f"{step03_name}_{step03_hash}" / benchmark_path / x
-
+artifact_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / x
+artifact_log_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / log_path / x
+artifact_benchmark_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################

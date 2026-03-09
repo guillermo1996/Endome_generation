@@ -73,6 +73,7 @@ def generate_input_samples_df(dataset, group):
     endome_samples_df = pd.DataFrame(endome_samples)
     return(endome_samples_df)
 yaml.Dumper.ignore_aliases = lambda *args: True
+
 def create_save_params_rule(step_name, step_dir, step_params, global_params):
     def previous_params(global_params, step_params):
         new_global_params = global_params.copy()
@@ -108,16 +109,15 @@ def create_save_params_rule(step_name, step_dir, step_params, global_params):
 
             param_data = {
                 "step_dir": step_name,
-                "run_id": compute_hash(global_params),
+                # "run_id": compute_hash(global_params),
                 # "inherited_from_run_id": previous_hash if previous_global_dict else "",
-                "step_parameters": step_params,
+                # "step_parameters": step_params,
                 "all_parameters": filter_steps(global_params, step_num)
             }
-
             with open(output.params_file, "w") as f:
                 yaml.dump(param_data, f, default_flow_style=False, sort_keys=False)
 
-def compute_hash(params_dict):
+def compute_hash(params_dict, prev_step_hash = ""):
     """Generate a short hash from parameters"""
     if not params_dict:
         return ""
@@ -128,19 +128,22 @@ def compute_hash(params_dict):
     values_only.sort()
 
     merged = "[" + ",".join(values_only) + "]"
-    return hashlib.md5(merged.encode()).hexdigest()[:4]
+    current_hash = hashlib.md5(merged.encode()).hexdigest()[:4]
+    # if prev_step_hash != "":
+    #     current_hash = f"{prev_step_hash}.{current_hash}"
+    return current_hash
 
-def pretty_print_dict(d):
-    #take empty string
-    pretty_dict = ''  
+# def pretty_print_dict(d):
+#     #take empty string
+#     pretty_dict = ''  
     
-    #get items for dict
-    for k, v in d.items():
-        pretty_dict += f'{k}: \n'
-        for value in v:
-            pretty_dict += f'    {value}: {v[value]}\n'
-    #return result
-    return pretty_dict
+#     #get items for dict
+#     for k, v in d.items():
+#         pretty_dict += f'{k}: \n'
+#         for value in v:
+#             pretty_dict += f'    {value}: {v[value]}\n'
+#     #return result
+#     return pretty_dict
 
 def dict_to_readable(d, indent=2):
     lines = []

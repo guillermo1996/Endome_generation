@@ -43,13 +43,13 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_d7dc/ORF_Category/Ebbert.control_orf.gtf"),
-    output = list(gtf = "~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/Ebbert.control.orf_filter.gtf"),
+    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/results/Wood.control/04-ORF_Identification-edb2/ORF_Category/Wood.control_orf.gtf"),
+    output = list(gtf = "~/RytenLab-Research/40-ENDome_generation/results/Wood.control/04-ORF_Identification-edb2/ORF_Filtration/Wood.control.pc.orf_filter.gtf"),
     params = list(
-      main_config = "cfg",
+      main_config = "pc",
       valid_ref_gene_type = c("all"),
       valid_ref_tx_type = c("all"),
-      valid_orfannotate_type = c("coding"),
+      valid_orfannotate_type = c("all"),
       in_ref_filter = ""
     )
   )
@@ -100,16 +100,16 @@ valid_ref_gene_type <- snakemake@params$valid_ref_gene_type
 valid_ref_tx_type <- snakemake@params$valid_ref_tx_type
 valid_orfannotate_type <- snakemake@params$valid_orfannotate_type
 in_ref_filter <- snakemake@params$in_ref_filter
-
-if(main_config == "pc"){
-  valid_ref_gene_type = c("protein_coding")
-  valid_ref_tx_type = c("protein_coding")
-  valid_orfannotate_type = c("coding")
-}else if(main_config == "all"){
-  valid_ref_gene_type = c("all")
-  valid_ref_tx_type = c("all")
-  valid_orfannotate_type = c("all")
-}
+# 
+# if(main_config == "pc"){
+#   valid_ref_gene_type = c("protein_coding")
+#   valid_ref_tx_type = c("protein_coding")
+#   valid_orfannotate_type = c("coding")
+# }else if(main_config == "all"){
+#   valid_ref_gene_type = c("all")
+#   valid_ref_tx_type = c("all")
+#   valid_orfannotate_type = c("all")
+# }
 
 #----------------------------------------------------------------------------- #
 ## 2.2 Apply the filters o extract the valid transcripts ----

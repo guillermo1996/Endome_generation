@@ -22,9 +22,9 @@ step04_hash = compute_hash(global_params)
 global_params.update({f"{step04_name}_{step04_hash}": global_params.pop(step04_name)})
 
 ### Paths
-orf_path = lambda x: Path(results_path) / f"{step04_name}_{step04_hash}" / x
-orf_log_path = lambda x: Path(results_path) / f"{step04_name}_{step04_hash}" / log_path / x
-orf_benchmark_path = lambda x: Path(results_path) / f"{step04_name}_{step04_hash}" / benchmark_path / x
+orf_path = lambda x: Path(results_path) / f"{step04_name}-{step04_hash}" / x
+orf_log_path = lambda x: Path(results_path) / f"{step04_name}-{step04_hash}" / log_path / x
+orf_benchmark_path = lambda x: Path(results_path) / f"{step04_name}-{step04_hash}" / benchmark_path / x
 
 ### ORF Download path
 orfannotate_version = orfannotate_settings["version"]
@@ -37,17 +37,17 @@ create_save_params_rule(step04_name, orf_path, step04_params, global_params)
 
 def orfannotate_input(wildcards):
     if orfannotate_settings.get("gffread_clean", False):
-        return rules.pigeon_filter.output.filtered_gtf
-    else:
         return rules.gffread.output.gtf
+    else:
+        return rules.pigeon_filter.output.filtered_gtf
 
 ## Rules
 ################################################################################
 rule download_ORF_annotate:
     message: "--- Downloading and Extracting ORF Annotate ---"
     output:
-        orfanntoate_dir = directory("tools/ORFannotate"),
-        script = "tools/ORFannotate/ORFannotate.py"
+        orfanntoate_dir = directory(f"tools/ORFannotate-{orfannotate_version}"),
+        script = f"tools/ORFannotate-{orfannotate_version}/ORFannotate.py"
     params:
         url = orfannotate_tar_url
     shell:
@@ -87,22 +87,22 @@ rule ORF_annotate:
     shell:
         "python {input.script} --gtf {input.gtf} --fa {input.ref_genome} --outdir {params.out_dir} 2>&1 | tee {log}"
 
-rule ORF_annotate_clean:
-    message: """--- Clean ORFannotate output with gffread ---"""
-    input:
-        gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated.gtf")
-    output:
-        gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated_clean.gtf"),
-    log: orf_log_path("ORF_Identification/gffread_clean_{prefix}.log")
-    benchmark: orf_benchmark_path("ORFannotate/gffread_clean_{prefix}.tsv")
-    conda:  "../envs/gffread.yaml"
-    shell:
-        "gffread -E {input.gtf} -T -o {output.gtf} 2>&1 | tee {log}"
+# rule ORF_annotate_clean:
+#     message: """--- Clean ORFannotate output with gffread ---"""
+#     input:
+#         gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated.gtf")
+#     output:
+#         gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated_clean.gtf"),
+#     log: orf_log_path("ORF_Identification/gffread_clean_{prefix}.log")
+#     benchmark: orf_benchmark_path("ORFannotate/gffread_clean_{prefix}.tsv")
+#     conda:  "../envs/gffread.yaml"
+#     shell:
+#         "gffread -E {input.gtf} -T -o {output.gtf} 2>&1 | tee {log}"
 
 rule ORF_categorization:
     message: """--- Transcript categorization ---"""
     input:
-        gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated_clean.gtf"),
+        gtf = orf_path("ORFannotate/{prefix}/ORFannotate_annotated.gtf"),
         ref_annotation = ref_annotation,
         protein_fa = orf_path("ORFannotate/{prefix}/protein.fa"),
         orf_summary = orf_path("ORFannotate/{prefix}/ORFannotate_summary.tsv"),

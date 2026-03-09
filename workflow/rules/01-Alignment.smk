@@ -18,9 +18,9 @@ step01_hash = compute_hash(global_params)
 global_params.update({f"{step01_name}_{step01_hash}": global_params.pop(step01_name)})
 
 ### Paths
-alignment_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / x
-alignment_log_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / log_path / x
-alignment_benchmark_path = lambda x: Path(results_path) / f"{step01_name}_{step01_hash}" / benchmark_path / x
+alignment_path = lambda x: Path(results_path) / f"{step01_name}-{step01_hash}" / x
+alignment_log_path = lambda x: Path(results_path) / f"{step01_name}-{step01_hash}" / log_path / x
+alignment_benchmark_path = lambda x: Path(results_path) / f"{step01_name}-{step01_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################

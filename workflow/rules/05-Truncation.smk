@@ -20,9 +20,9 @@ step05_hash = compute_hash(global_params)
 global_params.update({f"{step05_name}_{step05_hash}": global_params.pop(step05_name)})
 
 ### Paths
-truncation_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / x
-truncation_log_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / log_path / x
-truncation_benchmark_path = lambda x: Path(results_path) / f"{step05_name}_{step05_hash}" / benchmark_path / x
+truncation_path = lambda x: Path(results_path) / f"{step05_name}-{step05_hash}" / x
+truncation_log_path = lambda x: Path(results_path) / f"{step05_name}-{step05_hash}" / log_path / x
+truncation_benchmark_path = lambda x: Path(results_path) / f"{step05_name}-{step05_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################

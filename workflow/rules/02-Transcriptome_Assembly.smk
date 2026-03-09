@@ -22,9 +22,9 @@ step02_hash = compute_hash(global_params)
 global_params.update({f"{step02_name}_{step02_hash}": global_params.pop(step02_name)})
 
 ### Paths
-transcriptome_path = lambda x: Path(results_path) / f"{step02_name}_{step02_hash}" / x
-transcriptome_log_path = lambda x: Path(results_path) / f"{step02_name}_{step02_hash}" / log_path / x
-transcriptome_benchmark_path = lambda x: Path(results_path) / f"{step02_name}_{step02_hash}" / benchmark_path / x
+transcriptome_path = lambda x: Path(results_path) / f"{step02_name}-{step02_hash}" / x
+transcriptome_log_path = lambda x: Path(results_path) / f"{step02_name}-{step02_hash}" / log_path / x
+transcriptome_benchmark_path = lambda x: Path(results_path) / f"{step02_name}-{step02_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################

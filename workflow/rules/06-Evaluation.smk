@@ -21,9 +21,9 @@ step06_hash = compute_hash(global_params)
 global_params.update({f"{step06_name}_{step06_hash}": global_params.pop(step06_name)})
 
 ### Paths
-evaluation_path = lambda x: Path(results_path) / f"{step06_name}_{step06_hash}" / x
-evaluation_log_path = lambda x: Path(results_path) / f"{step06_name}_{step06_hash}" / log_path / x
-evaluation_benchmark_path = lambda x: Path(results_path) / f"{step06_name}_{step06_hash}" / benchmark_path / x
+evaluation_path = lambda x: Path(results_path) / f"{step06_name}-{step06_hash}" / x
+evaluation_log_path = lambda x: Path(results_path) / f"{step06_name}-{step06_hash}" / log_path / x
+evaluation_benchmark_path = lambda x: Path(results_path) / f"{step06_name}-{step06_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################
@@ -79,64 +79,64 @@ rule kallisto_bus:
         kallisto bus -t {threads} -i {input.kdx} -x {params.tech} {params.strand} -o {params.out_dir} --verbose {input.files} 2>&1 | tee {log}
         """
 
-module scUTRquant:
-    snakefile:
-        "../../tools/scUTRquant-0.5.0/Snakefile"
-        # github("Mayrlab/scUTRquant", path="Snakefile", tag="v0.5.0")
-    skip_validation: True
-    config: config["scUTRquant_config"]
+# module scUTRquant:
+#     snakefile:
+#         "../../tools/scUTRquant-0.5.0/Snakefile"
+#         # github("Mayrlab/scUTRquant", path="Snakefile", tag="v0.5.0")
+#     skip_validation: True
+#     config: config["scUTRquant_config"]
 
-# use rule * from scUTRquant as scUTRquant_*
+# # use rule * from scUTRquant as scUTRquant_*
 
-use rule bustools_sort from scUTRquant as scUTR_bustools_sort with:
-    input: rules.kallisto_bus.output.bus
-    # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.bus"),
-    output: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
+# use rule bustools_sort from scUTRquant as scUTR_bustools_sort with:
+#     input: rules.kallisto_bus.output.bus
+#     # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.bus"),
+#     output: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
     
-use rule bustools_whitelist from scUTRquant as scUTR_bustools_whitelist with:
-    input: rules.scUTR_bustools_bus.output
-    # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
-    output: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/whitelist.txt"),
+# use rule bustools_whitelist from scUTRquant as scUTR_bustools_whitelist with:
+#     input: rules.scUTR_bustools_bus.output
+#     # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
+#     output: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/whitelist.txt"),
 
-def get_whitelist(wildcards):
-    if not config['bx_whitelist']:
-        return rules.scUTR_bustools_whitelist.output
-        # return evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/whitelist.txt"),
-    else:
-        return config['bx_whitelist']
+# def get_whitelist(wildcards):
+#     if not config['bx_whitelist']:
+#         return rules.scUTR_bustools_whitelist.output
+#         # return evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/whitelist.txt"),
+#     else:
+#         return config['bx_whitelist']
 
-use rule bustools_correct from scUTRquant as scUTR_bustools_correct with:
-    input: 
-        bus = rules.scUTR_bustools_sort.output
-        # bus = evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
-        bxs = get_whitelist
-    output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"))
+# use rule bustools_correct from scUTRquant as scUTR_bustools_correct with:
+#     input: 
+#         bus = rules.scUTR_bustools_sort.output
+#         # bus = evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.sorted.bus"),
+#         bxs = get_whitelist
+#     output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"))
 
-use rule bustools_correct_sort from scUTRquant as scUTR_bustools_correct_sort with:
-    input: rules.scUTR_bustools_correct.output
-    # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"),
-    output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.sorted.bus"))
+# use rule bustools_correct_sort from scUTRquant as scUTR_bustools_correct_sort with:
+#     input: rules.scUTR_bustools_correct.output
+#     # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"),
+#     output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.sorted.bus"))
 
-use rule bustools_count_txs from scUTRquant as scUTR_bustools_count_txs with:
-    input:
-        bus = get_input_busfile,
-        txs = rules.kallisto_bus.output.tx,
-        ec = rules.kallisto_bus.output.ec,
-        merge = 
-    input: rules.scUTR_bustools_correct.output
-    # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"),
-    output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.sorted.bus"))
+# use rule bustools_count_txs from scUTRquant as scUTR_bustools_count_txs with:
+#     input:
+#         bus = get_input_busfile,
+#         txs = rules.kallisto_bus.output.tx,
+#         ec = rules.kallisto_bus.output.ec,
+#         merge = 
+#     input: rules.scUTR_bustools_correct.output
+#     # input: evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.bus"),
+#     output: temp(evaluation_path("kallisto_bus/{prefix}.{orf_filter}.w{width}.{txEnd}/{sample_id}/output.corrected.sorted.bus"))
 
 
-use rule generate_tx_merge from scUTRquant as scUTR_generate_tx_merge with:
-    output: 
+# use rule generate_tx_merge from scUTRquant as scUTR_generate_tx_merge with:
+#     output: 
 
-rule generate_tx_merge:
-    input:
-        tsv=get_target_file('merge_tsv')
-    output:
-        "data/utrs/{target}/tx_merge.tsv"
-    shell:
-        """
-        tail -n+2 {input.tsv} | cut -f1,2 > {output}
-        """
+# rule generate_tx_merge:
+#     input:
+#         tsv=get_target_file('merge_tsv')
+#     output:
+#         "data/utrs/{target}/tx_merge.tsv"
+#     shell:
+#         """
+#         tail -n+2 {input.tsv} | cut -f1,2 > {output}
+#         """
