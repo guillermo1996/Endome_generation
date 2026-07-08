@@ -2,21 +2,32 @@
 ## Artifact Removal
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
-### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
-step03 = register_step(
-    name="03-Artifact_Removal",
-    params={
-        "pigeon_presets": build_tool_settings(config, "pigeon_settings", "pigeon_preset"),
-    },
-)
+step03_name = "03-Artifact_Removal"
+
+### Configurations
+pigeon_settings = config["pigeon_settings"][config["pigeon_profile"]]
+
+step03_params = {
+    "pigeon_settings": pigeon_settings,
+    **({"toy_data": True} if config.get("use_toy_data", False) else {})
+}
+
+### Compute hash and set global parameters
+global_params.update({step03_name: step03_params})
+step03_hash = compute_hash(global_params)
+global_params.update({f"{step03_name}_{step03_hash}": global_params.pop(step03_name)})
+
+### Paths
+artifact_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / x
+artifact_log_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / log_path / x
+artifact_benchmark_path = lambda x: Path(results_path) / f"{step03_name}-{step03_hash}" / benchmark_path / x
 
 ## Functions
 ################################################################################
+create_save_params_rule(step03_name, artifact_path, step03_params, global_params)
+
 def add_suffix_to_filename(path, suffix):
     base, ext = os.path.splitext(path)
     return base + suffix + ext
@@ -27,7 +38,7 @@ def pigeon_prepare_input(wildcards):
     if wildcards.prefix == "ref":
         return ref_annotation
     else:
-        return expand(step02.path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"), dataset = parts[0], group = parts[1])[0]
+        return expand(transcriptome_path("gffcompare/{dataset}.{group}.gffcompare.annotated.clean.gtf"), dataset = parts[0], group = parts[1])[0]
 
 ## Rules
 ################################################################################
@@ -44,14 +55,14 @@ rule pigeon_prepare:
     input:
         annotation = pigeon_prepare_input,
         genome = ref_genome
-    output:
-        sorted_gtf = step03.path("Prepare/{prefix}.pigeon.sorted.gtf")
-    log: step03.log("Pigeon_prepare/{prefix}.log")
-    benchmark: step03.benchmark("Pigeon_prepare/{prefix}.tsv")
+    output: 
+        sorted_gtf = artifact_path("Prepare/{prefix}.pigeon.sorted.gtf")
+    log: artifact_log_path("Pigeon_prepare/{prefix}.log")
+    benchmark: artifact_benchmark_path("Pigeon_prepare/{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.annotation, ".sorted")
     conda: "../envs/pigeon.yaml"
-    shell:
+    shell: 
         "pigeon prepare {input.annotation} {input.genome} 2>&1 | tee {log}; "
         "mv {params.pigeon_output} {output.sorted_gtf}; "
         "mv {params.pigeon_output}.pgi {output.sorted_gtf}.pgi; "
@@ -59,13 +70,13 @@ rule pigeon_prepare:
 rule pigeon_classify:
     message: """--- Pigeon Classify ---"""
     input:
-        sorted_gtf = step03.path("Prepare/{prefix}.pigeon.sorted.gtf"),
+        sorted_gtf = artifact_path("Prepare/{prefix}.pigeon.sorted.gtf"),
         sorted_annotation = ref_annotation_sorted,
         genome = ref_genome
-    output:
-        classification_txt = step03.path("Classify_Filter/{prefix}.pigeon_classification.txt")
-    log: step03.log("Pigeon/classify_{prefix}.log")
-    benchmark: step03.benchmark("Pigeon/classify_{prefix}.pigeon.tsv")
+    output: 
+        classification_txt = artifact_path("Classify_Filter/{prefix}.pigeon_classification.txt")
+    log: artifact_log_path("Pigeon/classify_{prefix}.log")
+    benchmark: artifact_benchmark_path("Pigeon/classify_{prefix}.pigeon.tsv")
     params:
         pigeon_output = lambda w, output: Path(output.classification_txt).parent
     threads: 16
@@ -77,13 +88,13 @@ rule pigeon_classify:
 rule pigeon_filter:
     message: """--- Pigeon Filter ---"""
     input:
-        classification_txt = step03.path("Classify_Filter/{prefix}.pigeon_classification.txt"),
-        sorted_annotation = step03.path("Prepare/{prefix}.pigeon.sorted.gtf")
+        classification_txt = artifact_path("Classify_Filter/{prefix}.pigeon_classification.txt"),
+        sorted_annotation = artifact_path("Prepare/{prefix}.pigeon.sorted.gtf")
     output:
-        filtered_gtf = step03.path("Classify_Filter/{prefix}.pigeon.sorted.filtered.gtf"),
-        pigeon_summary = step03.path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
-    log: step03.log("Pigeon/filter_{prefix}.log")
-    benchmark: step03.benchmark("Pigeon/filter_{prefix}.tsv")
+        filtered_gtf = artifact_path("Classify_Filter/{prefix}.pigeon.sorted.filtered.gtf"),
+        pigeon_summary = artifact_path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
+    log: artifact_log_path("Pigeon/filter_{prefix}.log")
+    benchmark: artifact_benchmark_path("Pigeon/filter_{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.sorted_annotation, ".filtered_lite")
     threads: 16
@@ -92,6 +103,3 @@ rule pigeon_filter:
         "pigeon filter -j {threads} --log-level INFO "
         "{input.classification_txt} --isoforms {input.sorted_annotation} 2>&1 | tee {log}; "
         "mv {params.pigeon_output} {output.filtered_gtf}"
-
-## Debug: benchmark loading time
-_log(f"\t+ {step03.name} imported in {time.perf_counter() - _start_time:.3f}s")

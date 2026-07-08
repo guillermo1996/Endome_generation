@@ -1,0 +1,17 @@
+# Snakemake execution profile (runtime/resources), distinct from the pipeline
+# parameter presets in config/config.yaml.
+#
+# Placed at workflow/profiles/default/, Snakemake (>=8) auto-discovers this as
+# the workflow profile, so no --profile flag is needed for a local run. A
+# user-level profile passed explicitly (e.g. --profile default pointing at
+# ~/.config/snakemake/default) takes precedence over this one.
+
+# non-slurm profile defaults
+restart-times: 0
+cores: 32
+latency-wait: 60
+
+use-conda: True
+keep-going: True
+rerun-incomplete: True
+printshellcmds: True

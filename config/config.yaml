@@ -1,13 +1,16 @@
 ##########################################################
 # Main config file for Endome generation pipeline
 #
-# PROFILE PATTERN
+# PRESET PATTERN
 # ---------------
-# Each tool has an active "<tool>_profile" key that selects a named entry from
+# Each tool has an active "<tool>_preset" key that selects a named entry from
 # the corresponding "<tool>_settings" block. To switch configurations, change
-# only the profile key. Feel free to add custom profiles that match your needs.
+# only the preset key. Feel free to add custom presets that match your needs.
 #
-# Example: to switch ORF filtering, simply change "orf_filter_profile": pc → all
+# (Note: these are pipeline-level parameter settings, distinct from Snakemake's
+# own execution profiles in workflow/profiles/, which control runtime/resources.)
+#
+# Example: to switch ORF filtering, simply change "orf_filter_preset": pc → all
 #
 #
 # COMBINATORIAL PARAMETERS 
@@ -36,23 +39,23 @@
 #       ├── 01-Alignment[_{hash}]/
 #       ├── ...
 #       └── 05-Truncation[_{hash}]/
-#           ├── {input_dataset}.{input_group}.{orf_filter_profile}.{trunc_site_1}.w{trunc_width}.gtf   # trunc_site × trunc_width
-#           └── {input_dataset}.{input_group}.{orf_filter_profile}.{trunc_site_2}.w{trunc_width}.gtf   # expand into files, not folders
+#           ├── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_1}.w{trunc_width}.gtf   # trunc_site × trunc_width
+#           └── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_2}.w{trunc_width}.gtf   # expand into files, not folders
 
 ############################
 # 01. GENERAL RUN SETTINGS
 ############################
 
 ## Reference genome and annotation (GENCODE GRCh38 / v48)
-ref_genome: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/GRCh38.primary_assembly.genome.fa"
-ref_annotation: "/home/MRGuillermoPerez/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf"
+ref_genome: "/home/MinaRyten/Guillermo/Resources/Genome/GRCh38.primary_assembly.genome.fa"
+ref_annotation: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
 
 ## 3'/5' truncation parameters
 trunc_site:  ["3p"] # Truncation site: "3p" or "5p"
 trunc_width: [500] # Window size (bp) around truncation site
 
 ## Output directories
-main_output_path: "results"
+main_output_path: "debug_results"
 log_path: ".logs"
 benchmark_path: ".benchmarks"
 
@@ -73,8 +76,9 @@ use_hash: True
 ############################
 
 ## Input dataset and samples to generate the ENDome
-input_dataset: ["Wood"] # Dataset to employ to generate the ENDome
+input_dataset: ["Ebbert"] # Dataset to employ to generate the ENDome
 input_group: ["control"] # Sample group to employ to generate the ENDome
+input_scUTRquant_samples: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
 
 ### Ebbert (2023) long-read public data
 input_dir_ebbert: "/home/MinaRyten/Emil/public_data/long-read/Ebbert_2023"
@@ -130,25 +134,28 @@ case_samples_wood:
 ############################################################
 #              PIPELINE STEP CONFIGURATIONS
 #
-# Steps follow the order of execution: 01 Alignment → 02 Assembly → 
-# 03 Artifact Removal → 04 ORF Identification → 05 Truncation → 06 Evaluation
+# Steps follow the order of execution: 
+# 01 Alignment → 02 Assembly → 03 Artifact Removal → 04 ORF Identification → 05 Truncation → 06 Evaluation
 ############################################################
 
 ############################
 # 00. TESTING / DEV MODE
 ############################
+# Set debug: True to print load-time / per-step timing instrumentation to
+# stderr. Leave False for normal (quiet) runs.
+debug: False
+
 # Set use_toy_data: True to run a fast subsampled test of the pipeline.
 # subsample_prop uses a string code: "001" = 0.1%, "010" = 1%, etc.
-use_toy_data: False
-subsample_seed:  1
-subsample_prop:  "001"        # 0.1% of reads
-
+use_toy_data: True
+subsample_seed: 1
+subsample_prop: "0001"        # 0.1% of reads
 
 
 ############################
 # 01. ALIGNMENT
 ############################
-minimap2_profile: default     # Options: default | k15
+minimap2_preset: default     # Options: default | k15
 
 minimap2_settings:
   default:
@@ -166,8 +173,8 @@ minimap2_settings:
 #   "unguided" = run without reference GTF
 #   "guided"   = run with reference GTF (-G flag)
 
-stringtie_profile:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
-gffcompare_profile: default
+stringtie_preset:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
+gffcompare_preset: default
 
 stringtie_settings:
   unguided_guided:
@@ -194,13 +201,13 @@ stringtie_settings:
 gffcompare_settings:
   default:
     gffcompare_flags: "-T"
-  strict:                              # Tighter exon/intron boundary tolerances
+  strict: # Tighter exon/intron boundary tolerances
     gffcompare_flags: "--strict-match -e 50 -d 50 -T"
 
 ############################
 # 03. ARTIFACT REMOVAL
 ############################
-pigeon_profile: default  
+pigeon_preset: default
 
 pigeon_settings:
   default: {} 
@@ -208,27 +215,27 @@ pigeon_settings:
 ############################
 # 04. ORF IDENTIFICATION
 ############################
-orfannotate_profile: default 
-orf_filter_profile:  pc
+orfannotate_preset: default
+orf_filter_preset:  orfann_coding
 
 orfannotate_settings:
   default:
-    version: "v1.1.0"
+    version: "v1.1.3"
     gffread_clean: False
 
-### ORF filter profiles control which gene/transcript/ORF types are retained
+### ORF filter settings control which gene/transcript/ORF types are retained
 orf_filter_settings:
-  all: # No filtering — keep all ORF classes and biotypes
+  all:                         # No filtering. Keep all ORF classes and biotypes
     valid_ref_gene_type:       ["all"]
     valid_ref_tx_type:         ["all"]
     valid_orfannotate_type:    ["all"]
     in_ref_filter:             ""
-  orfann_coding: # Keep only ORFannotate-classified coding transcripts
+  orfann_coding:               # Keep only ORFannotate-classified coding transcripts
     valid_ref_gene_type:       ["all"]
     valid_ref_tx_type:         ["all"]
     valid_orfannotate_type:    ["coding"]
     in_ref_filter:             ""
-  pc: # Strict: protein-coding biotype + coding ORF + in-reference
+  pc:                          # Strict: protein-coding biotype + coding ORF + in-reference
     valid_ref_gene_type:       ["protein_coding"]
     valid_ref_tx_type:         ["protein_coding"]
     valid_orfannotate_type:    ["coding"]
@@ -237,7 +244,7 @@ orf_filter_settings:
 ############################
 # 05. TRUNCATION
 ############################
-gtxcutr_profile: default
+gtxcutr_preset: default
 
 gtxcutr_settings:
   default:
@@ -245,56 +252,58 @@ gtxcutr_settings:
     genome: "hg38"
 
 ############################
-# 06. EVALUATION
+# 06. UTR QUANTIFICATION
 ############################
-# Sample sheet used for evaluation (snRNA-seq cell × barcode metadata)
-evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
+scUTRquant_config_template: "config/scUTRquant_config.yaml"
 
-kb_profile: default          # Options: default
-
-kb_settings:
+scUTRquant_preset: default
+scUTRquant_settings:
   default:
-    tech:   "10xv3"
-    strand: "--fr-stranded"
+    version: "v0.5.1"
+    genome: "hg38"
+    
+# scutrquant_settings:
+#   default:
+#     dataset_name: "Hardy_snRNAseq"
+#     output_type: "txs"
+#     tech: "10xv3"          # kallisto bus technology string
+#     strand: "--fr-stranded"  # strandedness flag
+#     min_umis: 500              # drop cells below this UMI count
+#     correct_bus: True             # barcode-correct against the whitelist
 
-############################
-# 06. EVALUATION
-############################
-# Sample sheet used for evaluation (snRNA-seq cell × barcode metadata)
-evaluation_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
+# # Quantifies UTR-isoform usage of the generated ENDome on single-nucleus
+# # RNA-seq data using scUTRquant (https://github.com/Mayrlab/scUTRquant).
+# #
+# # scUTRquant is imported as a Snakemake module straight from GitHub (no vendoring);
+# # its rules are reused and rewired into the step folder. The "target" transcriptome
+# # is the ENDome itself: the gtxcutr GTF + merge table from step 05, plus a kallisto
+# # index built here. The target YAML (config/utrome_config.yaml) is GENERATED at
+# # parse time from the step-05 outputs, so it never needs hand-editing.
 
-kb_profile: default
+# ## Sample sheet: scRNA/snRNA-seq samples to quantify (sample_id,file_type,files)
+# scutrquant_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
 
-kb_settings:
-  default:
-    tech:   "10xv3"
-    strand: "--fr-stranded"
+# ## Output dataset label (used in the SCE output filenames) and scratch dir.
+# ## These are environment/naming-only, so they are kept OUT of the hashed preset.
+# scutrquant_dataset_name: "Hardy_snRNAseq"
+# scutrquant_tmp_dir: "/home/drihome/MRGuillermoPerez/tmp"
 
+# ## Count matrices to produce. For differential UTR-isoform usage (DRIMSeq) only
+# ## "txs" is required; add "genes" for gene-level counts. Default: txs only.
+# scutrquant_output_type: ["txs"]
 
+# ## Cell-barcode whitelist:
+# ##   null  -> derive it from the data with `bustools whitelist` (works out-of-box)
+# ##   path  -> use a fixed whitelist (recommended for 10x). For 10x v3 this is the
+# ##            official 3M-february-2018.txt barcode list. Download the 10x
+# ##            whitelists with scUTRquant's extdata/bxs/download_10X_whitelists.sh.
+# scutrquant_bx_whitelist: null
 
+# scutrquant_preset: default
 
-############################################################
-#                 scUTRquant Configurations
-############################################################
-scUTRquant_config:
-  dataset_name: "output"
-  sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
-  sample_regex: ".*"
-  cell_annots: null
-  cell_annots_key: "cell_id"
-  exclude_unannotated_cells: False
-  target: "Ebbert.control.pc_custom.w500.3p"
-  tech: "10xv3"
-  strand: "--fr-stranded"
-  output_type:
-    - "txs"
-    - "genes"
-  output_format:
-    - "sce"
-  tmp_dir: "/home/drihome/MRGuillermoPerez/tmp"
-  bx_whitelist: null
-  correct_bus: True
-  min_umis: 500
-  targets_config: "config/utrome_config.yaml"
-  use_hdf5: False
-  include_reports: True
+# scutrquant_settings:
+#   default:
+#     tech:        "10xv3"          # kallisto bus technology string
+#     strand:      "--fr-stranded"  # strandedness flag
+#     min_umis:    500              # drop cells below this UMI count
+#     correct_bus: True             # barcode-correct against the whitelist

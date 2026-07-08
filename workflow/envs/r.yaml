@@ -1,4 +1,11 @@
-name: r-scripts
+# Single shared R/Bioconductor environment for every R script in the pipeline
+# (ORF categorization/filtration, gtxcutr truncation, satuRn DTU).
+# Merged from the former r.yaml / orf_categorization.yaml (identical to this
+# minus r-jsonlite) / gtxcutr.yaml / saturn.yaml. All target Bioconductor 3.18;
+# gtxcutr previously pinned r-base=4.3.2, bumped here to 4.3.3 to match the rest.
+#
+# gtxcutr also needs a local package installed post-solve — see r.post-deploy.sh.
+name: r-bioc
 channels:
   - conda-forge
   - bioconda
@@ -10,6 +17,28 @@ dependencies:
   - r-devtools=2.4.5
   - r-tidyverse=2.0.0
   - r-jsonlite=2.0.0
-  - bioconductor-rtracklayer=1.62.0
+  - r-matrix
+
+  # Core Bioconductor infra (shared across all scripts)
+  - bioconductor-biocgenerics=0.48.1
+  - bioconductor-s4vectors=0.40.2
+  - bioconductor-iranges=2.36.0
   - bioconductor-genomicranges=1.54.1
+  - bioconductor-biocparallel=1.36.0
+  - bioconductor-rtracklayer=1.62.0
   - bioconductor-plyranges=1.22.0
+
+  # gtxcutr truncation
+  - bioconductor-annotationdbi=1.64.1
+  - bioconductor-genomicfeatures=1.54.1
+  - bioconductor-biostrings=2.70.1
+  - bioconductor-bsgenome.mmusculus.ucsc.mm10
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38
+
+  # satuRn differential transcript usage
+  - bioconductor-saturn=1.10.0
+  - bioconductor-summarizedexperiment=1.32.0
+  - bioconductor-singlecellexperiment=1.24.0
+  - bioconductor-edger=4.0.0
+  - bioconductor-limma=3.58.1
+  - bioconductor-stager=1.24.0

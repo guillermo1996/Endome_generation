@@ -3,125 +3,109 @@
 # https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
 # in particular regarding the standardized folder structure mentioned there.
 
-from snakemake.utils import min_version
-from snakemake.utils import validate
-
+# ── Timing helpers ────────────────────────────────────────────────────
+import sys
+import time
+import os
 from datetime import datetime
 
-# Set the minimum snakemake version
-min_version("8.30.0")
+# Verbose load-time / timing instrumentation is gated on config["debug"].
+# Default False; the real value is read once config/config.yaml is loaded.
+DEBUG = False
 
-# load configuration
-# -----------------------------------------------------
+def _now() -> str:
+    """Return the current wall-clock time as ``HH:MM:SS``."""
+    return datetime.now().strftime("%H:%M:%S")
+
+def _log(msg: str) -> None:
+    """Print a timestamped debug message to stderr."""
+    if DEBUG and workflow.is_main_process:
+        print(f"[{_now()}] {msg}", file=sys.stderr)
+
+# ── Snakemake setup ───────────────────────────────────────────────────
+_t = time.perf_counter()
+from snakemake.utils import min_version
+from snakemake.utils import validate
+from snakemake.utils import logger
+_utils_import_time = time.perf_counter() - _t
+
+# Set the minimum snakemake version
+min_version("9.23.0")
+
+# ── Configuration ─────────────────────────────────────────────────────
 configfile: "config/config.yaml"
 # validate(config, schema="../schema/config_schema.yaml")
 
-# load rules
-# -----------------------------------------------------
+# Resolve the debug flag now that the config is loaded.
+_log(f"Snakemake utils imported in {_utils_import_time:.3f}s")
 
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 00-Common")
+# ── Rule modules ──────────────────────────────────────────────────────
+_log("Importing individual rules:")
+
 include: "rules/00-Common.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 01-Alignment")
 include: "rules/01-Alignment.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 02-Transcriptome_Assembly")
 include: "rules/02-Transcriptome_Assembly.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 03-Artifact_Removal")
 include: "rules/03-Artifact_Removal.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 04-ORF_Identification")
 include: "rules/04-ORF_Identification.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 05-Truncation")
 include: "rules/05-Truncation.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting 06-Evaluation")
-include: "rules/06-Evaluation.smk"
-print(f"[{datetime.now().isoformat(timespec='seconds')}] starting else")
+include: "rules/06-UTR_Quantification.smk"
 
-# optional messages, log and error handling
-# -----------------------------------------------------
+# ── Lifecycle hooks ───────────────────────────────────────────────────
 onstart:
     print("\n--- Analysis started ---\n")
 
 onsuccess:
     print("\n--- Workflow finished! ---\n")
-    print("--- Pipeline Configuration --- \n")
-    # print(yaml.dump(global_params, default_flow_style=False, sort_keys=False))
-    # print(dict_to_readable(global_params))
 
 onerror:
     print("\n--- An error occurred! ---\n")
 
 
-# Pipeline variables
-# -----------------------------------------------------
+# ── Pipeline variables ────────────────────────────────────────────────
 input_dataset = config.get("input_dataset", ["Ebbert"])
 input_group = config.get("input_group", ["control"])
-pc_filter = config.get("orf_filter_profile", ["pc"])
+pc_filter = config.get("orf_filter_preset", ["pc"])
 trunc_site = config.get("trunc_site", ["3p"])
 trunc_width = config.get("trunc_width", [500])
 
+# ── Wildcard constraints ──────────────────────────────────────────────
 wildcard_constraints:
     dataset = "Wood|Ebbert|gencode",
     group = "control|case|control_case|none",
-    txEnd = "\\dp"
+    txEnd = "\\dp",
+    sample_id = "[^/]+"
 
-def generate_param_files(execute = False):
-    if not execute:
+# ── Helper functions ──────────────────────────────────────────────────
+def generate_param_files(run = False):
+    if not run:
         return []
 
     param_dict = {
-        "step01_params": expand(alignment_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step02_params": expand(transcriptome_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step03_params": expand(artifact_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step04_params": expand(orf_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step05_params": expand(truncation_path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step06_params": expand(evaluation_path(f"parameters.yaml"), dataset = input_dataset, group = input_group)
+        "step01_params": expand(step01.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step02_params": expand(step02.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step03_params": expand(step03.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step04_params": expand(step04.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step05_params": expand(step05.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
     }
 
     return sum(param_dict.values(), [])
 
-def run_gencode(execute = False):
-    if not execute:
-        return []
-    
-    gencode_dict = {
-        "truncated_gtf_gencode": expand(truncation_path("gtxcutr/gencode.none.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-            dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site),
-        "run_info_gencode": expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
-            dataset = "gencode", group = "none", orf_filter = "pc", width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
-        "run_info_gencode_full": expand(evaluation_path("kallisto_bus/gencode.none.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"),
-            dataset = "gencode", group = "none", orf_filter = "pc", width = 0, txEnd = "0p", sample_id = evaluation_samples.index),
-    }
-
-    return sum(gencode_dict.values(), [])
-    
-# rule all:
-#     input:
-#         # Generate parameters
-#         parameters = generate_param_files(execute = False),
-
-#         # Run gencode
-#         gencode = run_gencode(execute = False),
-
-#         # Truncated GTFs
-#         truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-#             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-
-#         # Kallisto Bus
-#         run_info = expand(evaluation_path("kallisto_bus/{dataset}.{group}.{orf_filter}.w{width}.{txEnd}/{sample_id}/run_info.json"), 
-#             dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site, sample_id = evaluation_samples.index),
-
-
-#     default_target: True
-
 rule all:
     input:
-        # Generate parameters
-        parameters = generate_param_files(execute = True),
-        # Truncate GTFs
-        truncated_gtf = expand(truncation_path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-            dataset = input_dataset,
-            group = input_group,
-            orf_filter = pc_filter,
-            width = trunc_width,
-            txEnd = trunc_site)
-        
+        # Generate Parameters
+        parameters = generate_param_files(run = True),
+        # Truncated ENDomes
+        truncated_gtf = expand(step05.path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
+            dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+        # scUTRquant merged target catalog (one entry per ENDome) + resolved config.
+        # PHASE 1 (config absent): these are built; the module below is skipped.
+        scutrquant_catalog = expand(step06.path("scUTRquant/ENDome_targets.yml"),
+            dataset = input_dataset, group = input_group),
+        scutrquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"),
+            dataset = input_dataset, group = input_group),
+        # PHASE 2 (config present): scUTRquant runs via its module -> txs.Rds.
+        # Empty on the first run; populated once the config exists (re-run).
+        scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"),
+            dataset = input_dataset, group = input_group)
     default_target: True

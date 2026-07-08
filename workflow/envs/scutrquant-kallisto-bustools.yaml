@@ -1,0 +1,17 @@
+# Mirrors scUTRquant's envs/kallisto-bustools.yaml so a locally-built kallisto
+# INDEX is byte-compatible with scUTRquant's reused `kallisto bus` step.
+# scUTRquant pins a custom kallisto build (merv::kallisto=0.46.2sq); building the
+# index with a different kallisto version produces an incompatible index format.
+#
+# Used by the ALT step (06-UTR_quantification_ALT.smk), which reuses scUTRquant's
+# kallisto|bustools rules verbatim via `use rule *`. NOTE: kallisto 0.46 `index`
+# has no --threads/--tmp flags.
+name: scutrquant-kallisto-bustools
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+  - merv
+dependencies:
+  - merv::kallisto=0.46.2sq
+  - bustools=0.40.0
