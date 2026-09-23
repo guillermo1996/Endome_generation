@@ -176,19 +176,42 @@ def resolve_preset(config: dict, presets_key: str, preset_key: str) -> dict:
 
     return available[preset_name]
 
-def build_tool_settings(config: dict, presets_key: str, preset_key: str) -> dict:
-    """Wrap a tool's resolved preset with its name for provenance dumps.
+def build_tool_settings(config: dict, presets_key: str, preset_key: str = None) -> dict:
+    """Wrap a tool's preset(s) with their name(s) for provenance dumps.
+
+    When ``preset_key`` is given, only the selected preset is recorded. When it
+    is omitted, the whole presets block is recorded instead - use this for tools
+    whose preset varies as a filename wildcard (e.g. ``orf_filter``), where every
+    preset may be materialised within the same run and so all of them must be
+    part of the step's provenance and hash.
 
     Args:
         config (dict): The Snakemake ``config`` mapping.
         presets_key (str): Key of the presets block, e.g. ``"minimap2_presets"``.
         preset_key (str): Key of the active-preset selector, e.g.
-            ``"minimap2_preset"``.
+            ``"minimap2_preset"``. When None, all presets in ``presets_key`` are
+            recorded. Defaults to None.
 
     Returns:
-        dict: ``{"preset": <name>, "params": <settings>}``. The ``preset`` name
-        is for human-readable dumps only; ``params`` drives the hash.
+        dict: ``{"preset": <name(s)>, "params": <settings>}``. The ``preset``
+        entry is for human-readable dumps only; ``params`` drives the hash. With
+        no ``preset_key``, ``preset`` is the sorted list of preset names and
+        ``params`` is the full ``{name: settings}`` block.
+
+    Raises:
+        KeyError: If the presets block (or the selector, when given) is missing
+            from ``config``.
+        ValueError: If the selected preset name is absent from the presets block.
     """
+    if preset_key is None:
+        if presets_key not in config:
+            raise KeyError(f"Missing presets block '{presets_key}' in config.")
+        available = config[presets_key]
+        return {
+            "preset": sorted(available),  # human-readable
+            "params": available,          # hashed values: every preset
+        }
+
     return {
         "preset": config[preset_key],                          # human-readable
         "params": resolve_preset(config, presets_key, preset_key),  # hashed values
@@ -264,7 +287,7 @@ class Step:
         """
         return Path(self._results_path) / self.name / self._benchmark_path / relpath
 
-def register_step(name: str, params: dict, save_params: bool = True) -> Step:
+def register_step(name: str, params: dict, extra_params: dict = None, save_params: bool = True) -> Step:
     """Register a pipeline step and return its path helper.
 
     Performs the boilerplate shared by every rule module, so a module only has
@@ -273,13 +296,23 @@ def register_step(name: str, params: dict, save_params: bool = True) -> Step:
     1. Records ``params`` in the global provenance dict ``global_params``.
     2. When ``config["use_hash"]`` is truthy, computes a parameter hash over the
        accumulated ``global_params`` and appends it to the folder name.
-    3. Optionally creates the rule that writes the step's ``parameters.yaml``.
+    3. Records ``extra_params`` (if given) in ``global_extra_params`` under the
+       same (possibly hashed) step name. These are dumped into the step's
+       ``parameters.yaml`` for provenance exactly like ``params``, but are never
+       fed into ``compute_hash`` - use this for things that should be visible in
+       the audit trail but shouldn't force a folder change (e.g. a selector like
+       ``transcript_merge_method`` that's meant to vary as a filename wildcard
+       instead of a hash-scoped setting).
+    4. Optionally creates the rule that writes the step's ``parameters.yaml``.
 
     Args:
         name (str): Base step name of the form ``"NN-Title"`` (e.g.
             ``"01-Alignment"``); the ``NN-`` prefix is required.
         params (dict): Mapping of ``{presets_key: build_tool_settings(...)}`` for
-            every tool configured in this step.
+            every tool configured in this step. Drives the hash.
+        extra_params (dict): Additional provenance-only values to record in
+            ``parameters.yaml``. Never contributes to the hash, for this step or
+            any step registered afterwards. Defaults to None.
         save_params (bool): When True, also create the ``parameters.yaml`` dump
             rule for the step. Defaults to True.
 
@@ -296,6 +329,9 @@ def register_step(name: str, params: dict, save_params: bool = True) -> Step:
         # Re-key under the hashed name so downstream dumps reflect the folder.
         global_params[final_name] = global_params.pop(name)
 
+    if extra_params:
+        global_extra_params[final_name] = extra_params
+
     step = Step(final_name, results_path, log_path, benchmark_path, hash=step_hash)
 
     if save_params:
@@ -307,7 +343,18 @@ def create_save_params_rule(step: Step) -> None:
     """Create the rule that dumps a step's resolved parameters to YAML.
 
     The generated rule writes ``parameters.yaml`` into the step folder,
-    capturing the full ``global_params`` provenance at workflow runtime.
+    capturing the provenance of every step registered up to and including this
+    one (later steps are excluded, even though they'll still be registered
+    into ``global_params`` before any rule actually runs).
+
+    How often the rule fires is controlled by ``config["always_save_params"]``:
+
+    * True - the rule's ``params`` carry a fresh timestamp, so the "params"
+      rerun-trigger fires and every ``snakemake`` invocation rewrites all the
+      ``parameters.yaml`` files.
+    * False (default) - the ``params`` carry a digest of the YAML that would be
+      written, so the rule only reruns when the file is missing or when the
+      recorded parameters actually changed.
 
     Args:
         step (Step): The step whose ``parameters.yaml`` should be produced.
@@ -324,24 +371,91 @@ def create_save_params_rule(step: Step) -> None:
         raise ValueError(f"step name must start with 'NN-' (00-99): received {step.name}")
     step_num = int(match.group(1))
 
+    # global_params keeps growing as later steps register, and the `run:`
+    # block below only executes once the whole workflow has been parsed - so
+    # without snapshotting here, every step's dump would end up containing
+    # every other step's params too.
+    params_snapshot = copy.deepcopy(global_params)
+
+    # Merge in provenance-only extras (see register_step's extra_params) after
+    # the snapshot is taken - they were never part of global_params, so they
+    # never reached compute_hash for this step or any step registered so far.
+    for step_name, extra in global_extra_params.items():
+        params_snapshot.setdefault(step_name, {})
+        params_snapshot[step_name] = {**params_snapshot[step_name], **extra}
+
+    param_data = {
+        "step_dir": step.name,
+        "all_parameters": params_snapshot,
+    }
+    params_yaml = yaml.dump(param_data, default_flow_style=False, sort_keys=False)
+
+    # The value fed to the "params" rerun-trigger decides how often the dump is
+    # refreshed: a timestamp changes on every invocation (always rewrite), a
+    # digest of the payload only changes when the parameters themselves do
+    # (rewrite only when needed).
+    always_save = config.get("always_save_params", False)
+    params_digest = hashlib.md5(params_yaml.encode()).hexdigest()
+
     # Dynamically create a rule to save parameters for a specific step
     rule:
         name: f"save_step{step_num}_params"
         message: "--- Saving parameters to parameters.yaml ---"
         output:
             params_file = str(step.path("parameters.yaml"))
+        params:
+            _trigger = (lambda wildcards: time.time()) if always_save else params_digest
         run:
-            param_data = {
-                "step_dir": step.name,
-                "all_parameters": global_params,
-            }
             with open(output.params_file, "w") as f:
-                yaml.dump(param_data, f, default_flow_style=False, sort_keys=False)
+                f.write(params_yaml)
 
 ################################################################################
 ## Global variables
 ################################################################################
 global_params = {}
+global_extra_params = {}
+
+################################################################################
+## Temporary rules
+################################################################################
+test_datasets = config.get("input_dataset", ["Ebbert"])
+test_groups = config.get("input_group", ["control"])
+test_merge_method = config.get("transcript_merge_method", ["stringtie"])[0]
+_test_wildcard_defaults = {
+    "orf_filter": config.get("orf_filter_preset", "pc"),
+    "width": config.get("trunc_width", [500])[0],
+    "txEnd": config.get("trunc_site", ["3p"])[0],
+}
+_test_data_links = []
+
+def register_test_data_link(rule_output) -> None:
+    template = str(rule_output)
+
+    # The file keeps the generic "test" prefix, so the dataset x group combination
+    # is carried by a sub-folder instead (data/test_data/{dataset}.{group}/).
+    dest_name = expand(Path(template).name, prefix="test", **_test_wildcard_defaults)[0]
+
+    for dataset in test_datasets:
+        for group in test_groups:
+            prefix = f"{dataset}.{group}.{test_merge_method}"
+            source = expand(template, dataset=dataset, group=group, prefix=prefix, **_test_wildcard_defaults)[0]
+            dest = Path("data/test_data") / f"{dataset}.{group}" / dest_name
+            _test_data_links.append((source, str(dest)))
+
+rule test_data:
+    message: "--- Refreshing test-data snapshot in data/test_data/ ---"
+    run:
+        for source, target in _test_data_links:
+            src = Path(source)
+            if not src.exists():
+                print(f"[test_data] skipping {target}: source not built ({src})", file=stderr)
+                continue
+            dst = Path(target)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.is_symlink() or dst.exists():
+                dst.unlink()
+            dst.symlink_to(src.resolve())
+            print(f"[test_data] linked {target} -> {src}", file=stderr)
 
 ## Debug: benchmark loading time
 _log(f"\t+ 00-Common imported in {time.perf_counter() - _start_time:.3f}s")

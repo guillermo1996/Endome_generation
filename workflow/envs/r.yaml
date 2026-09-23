@@ -1,44 +1,70 @@
 # Single shared R/Bioconductor environment for every R script in the pipeline
-# (ORF categorization/filtration, gtxcutr truncation, satuRn DTU).
+# (ORF categorization/filtration, txendcutr truncation, satuRn DTU).
 # Merged from the former r.yaml / orf_categorization.yaml (identical to this
-# minus r-jsonlite) / gtxcutr.yaml / saturn.yaml. All target Bioconductor 3.18;
-# gtxcutr previously pinned r-base=4.3.2, bumped here to 4.3.3 to match the rest.
+# minus r-jsonlite) / gtxcutr.yaml / saturn.yaml. All target Bioconductor 3.22
+# (R 4.5.x): bumped from Bioconductor 3.18/R 4.3.3 because txendcutr requires
+# R >= 4.5.0 and imports txdbmaker (split out of GenomicFeatures, only ships
+# for Bioc >= 3.20).
 #
-# gtxcutr also needs a local package installed post-solve — see r.post-deploy.sh.
-name: r-bioc
+# txendcutr also needs a GitHub-only package installed post-solve — see
+# r.post-deploy.sh.
+name: r-bioc2
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  - openssl=3.4.1
-  - libcurl=8.12.1
-  - r-base=4.3.3
-  - r-devtools=2.4.5
+  - openssl
+  - libcurl
+  - r-base=4.5.3
+  - r-devtools=2.4.6
   - r-tidyverse=2.0.0
   - r-jsonlite=2.0.0
   - r-matrix
+  - r-biocmanager=1.30.27
+  - r-duckdb=1.5.4.2
+  - r-igraph=2.3.3
+  - r-ggrepel=0.9.8
+  - r-janitor=2.2.1
+  - r-bookdown=0.47
+  - r-kableextra=1.4.1
+  - r-dt=0.34.0
+  - r-ggridges=0.5.7
 
   # Core Bioconductor infra (shared across all scripts)
-  - bioconductor-biocgenerics=0.48.1
-  - bioconductor-s4vectors=0.40.2
-  - bioconductor-iranges=2.36.0
-  - bioconductor-genomicranges=1.54.1
-  - bioconductor-biocparallel=1.36.0
-  - bioconductor-rtracklayer=1.62.0
-  - bioconductor-plyranges=1.22.0
+  - bioconductor-biocgenerics
+  - bioconductor-s4vectors=0.48.0
+  - bioconductor-iranges=2.44.0
+  - bioconductor-genomicranges=1.62.1
+  - bioconductor-biocparallel=1.44.0
+  - bioconductor-rtracklayer=1.70.1
+  - bioconductor-plyranges=1.30.1
+  - bioconductor-genomeinfodbdata=1.2.15
 
-  # gtxcutr truncation
-  - bioconductor-annotationdbi=1.64.1
-  - bioconductor-genomicfeatures=1.54.1
-  - bioconductor-biostrings=2.70.1
-  - bioconductor-bsgenome.mmusculus.ucsc.mm10
-  - bioconductor-bsgenome.hsapiens.ucsc.hg38
+  # txendcutr truncation
+  - bioconductor-annotationdbi=1.72.0
+  - bioconductor-genomicfeatures=1.62.0
+  - bioconductor-txdbmaker=1.6.2
+  - bioconductor-biostrings=2.78.0
+  - bioconductor-bsgenome.mmusculus.ucsc.mm10=1.4.3
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38=1.4.5
 
   # satuRn differential transcript usage
-  - bioconductor-saturn=1.10.0
-  - bioconductor-summarizedexperiment=1.32.0
-  - bioconductor-singlecellexperiment=1.24.0
-  - bioconductor-edger=4.0.0
-  - bioconductor-limma=3.58.1
-  - bioconductor-stager=1.24.0
+  - bioconductor-saturn=1.18.0
+  - bioconductor-summarizedexperiment=1.40.0
+  - bioconductor-singlecellexperiment=1.32.0
+  - bioconductor-edger=4.8.2
+  - bioconductor-limma=3.66.0
+  - bioconductor-stager=1.32.0
+  - bioconductor-biocneighbors=2.4
+  - bioconductor-beachmat=2.26.0
+  - bioconductor-scrapper=1.4.0
+  - bioconductor-scran=1.38.0
+  - bioconductor-dreamlet=1.8.0
+  - bioconductor-dexseq=1.56.0
+  - bioconductor-annotationhub=4.0.0
+  - bioconductor-ensembldb=2.34.0
+
+  # DrimSeq differential transcript usage
+  - bioconductor-drimseq=1.38.0
+  - bioconductor-apeglm=1.32.0

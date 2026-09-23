@@ -4,23 +4,22 @@
 ##
 ## Transcript filtration by ORF status
 ##
-## Aim: Filter the transcripts prior to truncation based on the ORF status
-##
 ## Author: Guillermo Rocamora Pérez
-##
-## Contributors:
-##
 ## Date Created: 2025-03-27
-##
-## Copyright (c) Guillermo Rocamora Pérez, 2025
-##
+## Copyright (c) Guillermo Rocamora Pérez, 2026
 ## Email: guillermorocamora@gmail.com
 ##
 ## Latest version: v1.0 (2025-03-27)
-##
 ## _________________________________________________
 ##
 ## - Notes:
+##   + Keeps only transcripts matching, per `params`: valid_ref_gene_type,
+##   valid_ref_tx_type (reference gene/transcript biotypes),
+##   valid_orfannotate_type (ORFannotate coding_class) and in_ref_filter.
+##   + If the input GTF has no "ref_gene_type" column (i.e. it's the raw
+##   reference annotation, not 04a's output), gene_type/transcript_type are
+##   copied into ref_gene_type/ref_tx_type and the ORFannotate-specific
+##   filters are disabled, so the same filtering logic applies to both.
 ##
 ## - Changelog:
 ##
@@ -43,13 +42,17 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/results/Wood.control/04-ORF_Identification-edb2/ORF_Category/Wood.control_orf.gtf"),
-    output = list(gtf = "~/RytenLab-Research/40-ENDome_generation/results/Wood.control/04-ORF_Identification-edb2/ORF_Filtration/Wood.control.pc.orf_filter.gtf"),
+    input = list(
+      gtf = "data/test_data/test.orf_annotated.gtf"
+    ),
+    output = list(
+      gtf_filter = "data/test_data/test.orf_filter.gtf"
+    ),
     params = list(
       main_config = "pc",
       valid_ref_gene_type = c("all"),
       valid_ref_tx_type = c("all"),
-      valid_orfannotate_type = c("all"),
+      valid_orfannotate_type = c("coding"),
       in_ref_filter = ""
     )
   )
@@ -57,9 +60,12 @@ if (interactive()) {
 
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
-library(GenomicRanges)
-library(rtracklayer)
-library(tidyverse)
+suppressMessages({
+  library(GenomicRanges)
+  library(rtracklayer)
+  library(plyranges)
+  library(tidyverse)
+})
 
 ## Package options - these are some examples and do not modify the script usage.
 options(dplyr.summarise.inform = FALSE)
@@ -73,10 +79,10 @@ options(readr.show_col_types = F)
 input_gtf_path <- snakemake@input$gtf
 
 ### Output Paths
-output_gtf_path <- snakemake@output$gtf
+output_gtf_path <- snakemake@output$gtf_filter
 
 #### Create output directory
-# dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
+dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Script Parameters ----
@@ -89,7 +95,6 @@ output_gtf_path <- snakemake@output$gtf
 # ---- 1. Load transcriptome ----
 gtf <- rtracklayer::import(input_gtf_path)
 
-
 ############################################################################## #
 # ---- 2. Filter the GTF based on configuration ----
 
@@ -99,17 +104,7 @@ main_config <- snakemake@params$main_config
 valid_ref_gene_type <- snakemake@params$valid_ref_gene_type
 valid_ref_tx_type <- snakemake@params$valid_ref_tx_type
 valid_orfannotate_type <- snakemake@params$valid_orfannotate_type
-in_ref_filter <- snakemake@params$in_ref_filter
-# 
-# if(main_config == "pc"){
-#   valid_ref_gene_type = c("protein_coding")
-#   valid_ref_tx_type = c("protein_coding")
-#   valid_orfannotate_type = c("coding")
-# }else if(main_config == "all"){
-#   valid_ref_gene_type = c("all")
-#   valid_ref_tx_type = c("all")
-#   valid_orfannotate_type = c("all")
-# }
+in_ref_filter <- as.logical(snakemake@params$in_ref_filter)
 
 #----------------------------------------------------------------------------- #
 ## 2.2 Apply the filters o extract the valid transcripts ----
@@ -134,14 +129,13 @@ if(!"ref_gene_type" %in% colnames(mcols(gtf))){
 ### provided to ignore any filtering. The filter `in_ref` removes every entry
 ### with NA in the `ref_gene_type` and `ref_tx_type` columns
 valid_transcripts <- gtf %>%
-  tibble::as_tibble() %>%
-  dplyr::filter(type == "transcript") %>%
+  dplyr::filter(type == "transcript") %>% 
   dplyr::filter(
     (all(valid_ref_gene_type == "all") | ref_gene_type %in% valid_ref_gene_type),
     (all(valid_ref_tx_type == "all") | ref_tx_type %in% valid_ref_tx_type),
     (all(valid_orfannotate_type == "all") | orfannotate_type %in% valid_orfannotate_type),
-    (in_ref_filter == "" | in_ref == in_ref_filter)
-  ) %>%
+    (is.na(in_ref_filter) | in_ref == in_ref_filter)
+  ) %>% 
   dplyr::pull(transcript_id)
 
 if(identical(valid_transcripts, character(0))) stop("No transcripts pass the requirements.")
@@ -151,8 +145,12 @@ if(identical(valid_transcripts, character(0))) stop("No transcripts pass the req
 
 ## GR: Genes are removed from the transcriptome as they will not be needed in
 ## future modules.
-gtf <- gtf %>% plyranges::filter(type != "gene", transcript_id %in% valid_transcripts)
+gtf <- gtf %>% dplyr::filter(type != "gene", transcript_id %in% valid_transcripts)
+
+# isoform_summary <- isoform_summary %>% dplyr::filter(transcript_id %in% valid_transcripts)
 
 ############################################################################## #
 # ---- 4. Output the GTF ----
 gtf %>% rtracklayer::export(output_gtf_path)
+
+# isoform_summary %>% readr::write_tsv(output_tsv_path)

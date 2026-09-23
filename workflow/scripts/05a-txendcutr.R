@@ -18,14 +18,14 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-      input=list(gtf="~/RytenLab-Research/snakefile-refactor/results_k15/04-ORF_Identification/ORF_Filtration/pigeon.annotated_orf.filter.gtf"),
-      output=list(gtf="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.gtf",
-                  fa="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.fa",
-                  transcript_overlap="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.overlaps.tsv",
-                  merge_table="~/RytenLab-Research/38-Endome_generation/results/gtxcutr_test.merge.tsv"),
+      input=list(gtf="data/test_data/test.pc.orf_filter.gtf"),
+      output=list(gtf="data/test_data/txendcutr_test.gtf",
+                  fa="data/test_data/txendcutr_test.fa",
+                  transcript_overlap="data/test_data/txendcutr_test.overlaps.tsv",
+                  merge_table="data/test_data/txendcutr_test.merge.tsv"),
       params=list(mergeDist="200", genome="hg38"),
       wildcards=list(width="500", txEnd="3p"),
-      log = list("~/RytenLab-Research/38-Endome_generation/results/gtxcutr.log"),
+      log = list("data/test_data/txendcutr_logs.log"),
       threads=8
   )
 }
@@ -33,14 +33,17 @@ if (interactive()) {
 ################################################################################
 ## Libraries and Parameters
 ################################################################################
+suppressMessages({
+  library(txendcutr)
+  library(BSgenome)
+  library(GenomicFeatures)
+  library(GenomeInfoDb)
+  library(GenomeInfoDbData)
+  library(BiocParallel)
+  library(magrittr)
+  library(txdbmaker)
+})
 
-library(gtxcutr)
-library(BSgenome)
-library(GenomicFeatures)
-library(BiocParallel)
-library(magrittr)
-
-require(txdbmaker)
 
 ## convert arguments
 maxTxLength <- as.integer(snakemake@wildcards$width)
@@ -59,7 +62,6 @@ BPPARAM = bpparam()
 ################################################################################
 ## Load Data, Truncate, and Export
 ################################################################################
-
 txdb <- makeTxDbFromGFF(file=snakemake@input$gtf, organism=organism(bsg))
 
 txdb <- keepStandardChromosomes(txdb, pruning.mode="coarse")
@@ -67,7 +69,7 @@ seqlevelsStyle(txdb) <- "UCSC"
 
 # overlap_path is optional
 # txEnd is optional. Defaults to 3' truncation
-txdb_result <- truncateTxome(txdb, maxTxLength = maxTxLength, overlap_path = overlap_path, txEnd = txEnd)
+txdb_result <- truncateTxome(txdb, maxTxLength = maxTxLength, overlapFile = overlap_path, txEnd = txEnd)
 
 print("Export GTF")
 exportGTF(txdb_result, snakemake@output$gtf)

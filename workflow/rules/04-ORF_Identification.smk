@@ -12,8 +12,11 @@ step04 = register_step(
     name="04-ORF_Identification",
     params={
         "orfannotate_presets": build_tool_settings(config, "orfannotate_settings", "orfannotate_preset"),
-        "orf_filter_presets": build_tool_settings(config, "orf_filter_settings", "orf_filter_preset"),
+        "orf_filter_presets": build_tool_settings(config, "orf_filter_settings"),
     },
+    extra_params={
+        "orf_filter_preset": config["orf_filter_preset"]
+    }
 )
 
 ### Resolved settings used directly in the rule bodies below
@@ -69,7 +72,9 @@ rule ORF_annotate:
     output:
         summary_tsv = step04.path("ORFannotate/{prefix}/ORFannotate_summary.tsv"),
         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated.gtf"),
-        protein_fa = step04.path("ORFannotate/{prefix}/protein.fa")
+        protein_fa = step04.path("ORFannotate/{prefix}/protein.fa"),
+        utr3_fa = step04.path("ORFannotate/{prefix}/utr3.fa"),
+        utr5_fa = step04.path("ORFannotate/{prefix}/utr5.fa")
     log: step04.log("ORFannotate/{prefix}.log")
     benchmark: step04.benchmark("ORFannotate/{prefix}.tsv")
     params:
@@ -100,28 +105,28 @@ rule ORF_categorization:
         orf_summary = step04.path("ORFannotate/{prefix}/ORFannotate_summary.tsv"),
         pigeon_summary = step03.path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
     output:
-        gtf = step04.path("ORF_Category/{prefix}_orf.gtf"),
-        isoform_summary = step04.path("ORF_Category/{prefix}_isoform_summary.tsv"),
-    log: step04.log("ORF_Category/{prefix}_orf.log")
-    benchmark: step04.benchmark("ORF_Category/{prefix}_orf.tsv")
+        gtf = step04.path("ORF_Category/{prefix}.orf_annotated.gtf"),
+        isoform_summary = step04.path("ORF_Category/{prefix}.isoform_summary.tsv"),
+    log: step04.log("ORF_Category/{prefix}.orf_annotated.log")
+    benchmark: step04.benchmark("ORF_Category/{prefix}.orf_annotated.tsv")
     conda: "../envs/r.yaml"
     script: "../scripts/04a-ORF_Categorization.R"
 
 
-def select_source_dataset(wildcards):
-    parts = wildcards.prefix.split(".")
+# def select_source_dataset(wildcards):
+#     parts = wildcards.prefix.split(".")
 
-    if parts[0] == "gencode":
-        return ref_annotation
-    else:
-        return rules.ORF_categorization.output.gtf
+#     if parts[0] == "gencode":
+#         return ref_annotation
+#     else:
+#         return rules.ORF_categorization.output.gtf
 
 rule ORF_filtration:
     message: """--- Transcript filtration ---"""
     input:
-        gtf = select_source_dataset
+        gtf = rules.ORF_categorization.output.gtf
     output:
-        gtf = step04.path("ORF_Filtration/{prefix}.{orf_filter}.orf_filter.gtf")
+        gtf_filter = step04.path("ORF_Filtration/{prefix}.{orf_filter}.orf_filter.gtf"),
     log: step04.log("ORF_Category/{prefix}.{orf_filter}_orf.log")
     benchmark: step04.benchmark("ORF_Category/{prefix}.{orf_filter}_orf.tsv")
     params:
@@ -132,6 +137,15 @@ rule ORF_filtration:
         in_ref_filter = orf_filter_settings["in_ref_filter"],
     conda: "../envs/r.yaml"
     script: "../scripts/04b-ORF_Filtration.R"
+
+register_test_data_link(rules.ORF_annotate.output.summary_tsv)
+register_test_data_link(rules.ORF_annotate.output.gtf)
+register_test_data_link(rules.ORF_annotate.output.protein_fa)
+register_test_data_link(rules.ORF_annotate.output.utr3_fa)
+register_test_data_link(rules.ORF_annotate.output.utr5_fa)
+register_test_data_link(rules.ORF_categorization.output.isoform_summary)
+register_test_data_link(rules.ORF_categorization.output.gtf)
+register_test_data_link(rules.ORF_filtration.output.gtf_filter)
 
 ## Debug: benchmark loading time
 _log(f"\t+ {step04.name} imported in {time.perf_counter() - _start_time:.3f}s")

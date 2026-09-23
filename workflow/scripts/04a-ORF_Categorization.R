@@ -4,25 +4,28 @@
 ##
 ## Transcript classification by ORF status
 ##
-## Aim: Complete the GTF with ORF information
-##
 ## Author: Guillermo Rocamora Pérez
-##
-## Contributors:
-##
 ## Date Created: 2025-03-26
-##
-## Copyright (c) Guillermo Rocamora Pérez, 2025
-##
+## Copyright (c) Guillermo Rocamora Pérez, 2026
 ## Email: guillermorocamora@gmail.com
 ##
-## Latest version: v1.0 (2025-03-26)
-##
+## Latest version: v1.1 (2026-07-16)
 ## _________________________________________________
 ##
 ## - Notes:
+##   + Based on ORFannotate v1.0.0 output.
+##   + Merges the ORFannotate summary, reference annotation, ORF protein
+##   sequences and Pigeon classification into one per-transcript isoform
+##   summary table.
+##   + in_ref: TRUE when the transcript's gene_id is found in the reference
+##   annotation.
+##   + A subset of the isoform summary (transcript_id, gene_id, gene_name,
+##   structural_category, in_ref, orfannotate_type, ref_transcript_type,
+##   ref_gene_type) is joined back onto the GTF as attributes.
 ##
 ## - Changelog:
+##   + v1.1 (2026-07-16): adapted to work with different transcript assembly
+##   merging software.
 ##
 ## - Please contact guillermorocamora@gmail.com for further assistance.
 ## _________________________________________________
@@ -45,30 +48,31 @@ if (interactive()) {
     )
   )
   snakemake <- Snakemake(
-    input = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/ORFannotate_annotated_clean.gtf",
-                 ref_annotation = "~/RytenLab-Research/Resources/GENCODE/gencode.v48.annotation.gtf",
-                 protein_fa = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/protein.fa",
-                 orf_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORFannotate/Ebbert.control/ORFannotate_summary.tsv",
-                 pigeon_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/03-Artifact_Removal_3b55/Classify_Filter/Ebbert.control.pigeon_classification.filtered_lite_classification.txt"),
-    output = list(gtf = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORF_Category/Ebbert.control_orf.gtf",
-                  isoform_summary = "~/RytenLab-Research/40-ENDome_generation/debug_results/Ebbert.control/04-ORF_Identification_5f62/ORF_Category/Ebbert.control_isoform_summary.tsv"),
+    input = list(gtf = "data/test_data/ORFannotate_annotated.gtf",
+                 ref_annotation = "~/RytenLab-Research/Resources/Gencode/gencode.v48.annotation.gtf",
+                 protein_fa = "data/test_data/protein.fa",
+                 orf_summary = "data/test_data/ORFannotate_summary.tsv",
+                 pigeon_summary = "data/test_data/test.pigeon_classification.filtered_lite_classification.txt"),
+    output = list(gtf = "data/test_data/test.orf_annotated.gtf",
+                  isoform_summary = "data/test_data/Ebbert.control.isoform_summary.tsv"),
     threads = 1
   )
 }
 
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
-library(GenomicRanges)
-library(rtracklayer)
-library(Biostrings)
-library(tidyverse)
+suppressMessages({
+  library(GenomicRanges)
+  library(rtracklayer)
+  library(Biostrings)
+  library(tidyverse)
+})
 
 ## Package options - these are some examples and do not modify the script usage.
 options(dplyr.summarise.inform = FALSE)
 options(lifecycle_verbosity = "warning")
 options(readr.show_progress = F)
 options(readr.show_col_types = F)
-
 
 #----------------------------------------------------------------------------- #
 ## 0.2 Script Paths ----
@@ -93,7 +97,6 @@ dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
 ## 0.4 User Input arguments ----
 #----------------------------------------------------------------------------- #
 ## 0.5 Helper Functions ----
-
 StringSet_to_tibble <- function(string_set){
   string_set_df <- data.frame(
     header = names(string_set),
@@ -122,54 +125,58 @@ orf_summary <- readr::read_tsv(input_orf_summary)
 ############################################################################## #
 # ---- 2. Generate the Isoform information table ----
 
-## GR: From the main GTF file, extract the transcripts and merge with
-## ORFannotate summary table
+## Generate the information that will be appended to the isoform summary
+orf_summary_filter <- orf_summary %>% 
+  dplyr::select(transcript_id, has_orf, 
+    orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len,
+    coding_class, total_junctions, NMD_sensitive)
+
+annotation_gtf_filter <- annotation_gtf %>% 
+  dplyr::filter(type == "transcript") %>% 
+  dplyr::select(transcript_id, gene_id, gene_type, gene_name, transcript_type)
+
+pigeon_class_filter <- pigeon_class %>% 
+  dplyr::select(transcript_id = isoform, structural_category, subcategory, ref_length, ref_exons)
+
+protein_df <- StringSet_to_tibble(protein_fa)
+
+## From the main GTF file, extract the transcripts and merge with ORFannotate
+## summary table, the reference annotation, the ORF sequences and the Pigeon
+## Classification
 isoform_summary <- gtf_df %>%
   dplyr::filter(type == "transcript") %>%
-  dplyr::select(transcript_id, stringtie_gene_id = gene_id, gene_name) %>%
-  dplyr::left_join(orf_summary %>%
-                     dplyr::select(transcript_id, has_orf, orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len, coding_class, total_junctions, NMD_sensitive),
-                   by = "transcript_id")
+  dplyr::select(transcript_id, merge_gene_id = gene_id) %>% 
+  dplyr::left_join(orf_summary_filter, by = "transcript_id") %>% 
+  dplyr::left_join(annotation_gtf_filter, by = "transcript_id") %>% 
+  dplyr::left_join(protein_df, by = c("transcript_id", "merge_gene_id" = "gene_id")) %>% 
+  dplyr::left_join(pigeon_class_filter, by = c("transcript_id"))
 
-## GR: Append information from the reference annotation.
-isoform_summary <- isoform_summary %>%
-  dplyr::left_join(annotation_gtf %>%
-                     dplyr::filter(type == "transcript") %>%
-                     dplyr::select(transcript_id, gene_id, gene_type, transcript_type),
-                   by = "transcript_id") %>%
-  dplyr::relocate(transcript_id, gene_id, gene_name, stringtie_gene_id, has_orf, orf_len, utr5_len, utr3_len, orfannotate_type = coding_class, ref_transcript_type = transcript_type, ref_gene_type = gene_type) %>%
-  dplyr::mutate(in_ref = !is.na(gene_id),
-                gene_id = ifelse(is.na(gene_id), stringtie_gene_id, gene_id),
-                gene_name = ifelse(is.na(gene_name), gene_id, gene_name))
-
-## GR: Append the ORF sequences
-protein_df <- StringSet_to_tibble(protein_fa)
-isoform_summary <- isoform_summary %>%
-  dplyr::left_join(protein_df, by = c("transcript_id", "stringtie_gene_id" = "gene_id")) %>%
-  dplyr::rename(orf_seq = sequence)
-
-## GR: Append the Pigeon classification
-isoform_summary <- isoform_summary %>%
-  dplyr::left_join(pigeon_class %>% dplyr::select(isoform, structural_category, subcategory, ref_length, ref_exons),
-                   by = c("transcript_id" = "isoform")) %>%
-  dplyr::relocate(transcript_id, gene_id, gene_name, stringtie_gene_id,
-                  structural_category, subcategory,
-                  in_ref, has_orf, ref_length, orf_len, utr5_len, utr3_len, total_junctions, ref_exons,
-                  orfannotate_type, ref_transcript_type, ref_gene_type)
-
+# Clean and sort the data
+isoform_summary <- isoform_summary %>% 
+  dplyr::rename(orfannotate_type = coding_class, ref_transcript_type = transcript_type, ref_gene_type = gene_type) %>% 
+  dplyr::mutate(
+    in_ref = !is.na(gene_id),
+    gene_id = ifelse(is.na(gene_id), merge_gene_id, gene_id),
+    gene_name = ifelse(is.na(gene_id), gene_id, gene_name)
+  ) %>% 
+  dplyr::rename(orf_seq = sequence) %>% 
+  dplyr::relocate(
+    transcript_id, gene_id, gene_name, merge_gene_id,
+    structural_category, subcategory,
+    in_ref, coding_prob, orfannotate_type, ref_transcript_type, ref_gene_type,
+    has_orf, ref_length, orf_len, utr5_len, utr3_len, total_junctions, ref_exons
+  )
 
 ############################################################################## #
 # ---- 3. Add relevant information to the gtf ----
 column_to_gtf <- c("transcript_id", "gene_id", "gene_name", "structural_category", "in_ref", "orfannotate_type", "ref_transcript_type", "ref_gene_type")
-NA_cols <- column_to_gtf[column_to_gtf != "transcript_id"]
+columns_to_remove <- c("gene_name", "gene_id", "xloc", "ref_gene_id", "cmp_ref", "class_code", "tss_id", "exon_number", "contained_in", "cmp_ref_gene", "ref_gene_name")
 
 gtf_gr <- gtf_df %>%
-  dplyr::select(-gene_name, -gene_id) %>%
+  dplyr::select(-any_of(columns_to_remove)) %>%
   dplyr::left_join(isoform_summary %>% dplyr::select(all_of(column_to_gtf)), by = "transcript_id") %>%
-  # dplyr::mutate(across(all_of(NA_cols), ~if_else(type == "transcript", ., NA))) %>%
   dplyr::rename(ref_tx_type = ref_transcript_type) %>%
   makeGRangesFromDataFrame(keep.extra.columns = T)
-
 
 ############################################################################## #
 # ---- 4. Output ----

@@ -1,0 +1,150 @@
+// ============================================================================
+// ENDome DBML - hand-written blocks
+//
+// Everything here is INVISIBLE to the DuckDB catalog, so it cannot be
+// introspected by workflow/scripts/utils/duckdb_to_dbml.R. Pass this file with
+// `--extra` and it is appended verbatim to the generated schema.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Undeclared relationship
+//
+// 05c-Build_ENDome_DB.R joins transcripts -> proteins but does not add the
+// FOREIGN KEY to `duckdb_schema` (only bin_id, utr5_id, utr3_id, cds_id and
+// superseded_by are declared). Add `aa_id = "proteins.aa_id"` to the
+// transcripts spec and this line becomes redundant.
+// ---------------------------------------------------------------------------
+Ref: transcripts.aa_id > proteins.aa_id
+
+// ---------------------------------------------------------------------------
+// Run provenance - NOT IMPLEMENTED YET
+//
+// Every table already carries a scalar `run_id`, so this is the natural
+// parent. No foreign key is drawn: a DuckDB file currently holds one run.
+// ---------------------------------------------------------------------------
+Table runs [headercolor: #6C6C6C] {
+  run_id varchar [pk, note: '{prefix}.{orf_filter}.w{width}.{txEnd}']
+  prefix varchar [note: 'e.g. Wood.control.stringtie']
+  orf_filter varchar [note: 'pc | ...']
+  width integer [note: 'truncation width (bp)']
+  tx_end varchar [note: '3p | 5p']
+
+  // txendcutr settings
+  merge_distance integer [note: 'max distance (bp) between truncation sites to merge']
+  genome varchar
+
+  // scoring settings
+  protein_metric varchar [note: 'bsr_max | bsr_min | bsr_mixed | fident']
+  length_scaling varchar [note: 'ratio | canberra']
+  member_weights varchar [note: 'uniform (only option implemented)']
+  w_protein double
+  w_cds_len double
+  w_start_codon double
+  w_stop_codon double
+  w_nmd double
+
+  created_at timestamp
+
+  Note: 'PROPOSED. Not created by the pipeline; no foreign key is declared yet.'
+}
+
+// ---------------------------------------------------------------------------
+// Transient tables of 05d-Compute_Scores.R
+// ---------------------------------------------------------------------------
+Table protein_pairs [headercolor: #C0392B] {
+  run_id varchar
+  aa_id_1 varchar [note: 'pmin(query, target)']
+  aa_id_2 varchar [note: 'pmax(query, target)']
+  fident float
+  qcov float
+  tcov float
+  bits integer [note: 'best hit of the pair']
+  bits_1 integer [note: 'self-hit bits of aa_id_1']
+  bits_2 integer
+  bsr_min double [note: 'bits / min(bits_1, bits_2)']
+  bsr_max double [note: 'bits / max(bits_1, bits_2)']
+  bsr_mixed double [note: 'bits / sqrt(bits_1 * bits_2)']
+
+  indexes {
+    (aa_id_1, aa_id_2) [pk]
+  }
+
+  Note: 'NOT IN THE FINAL DB. DuckDB TEMPORARY table built from the all-vs-all MMseqs2 hits; dropped when the connection closes.'
+}
+
+Table bin_pairs_distance [headercolor: #C0392B] {
+  run_id varchar
+  bin_id varchar
+  transcript_id_i varchar
+  transcript_id_j varchar [note: 'transcript_id_i < transcript_id_j']
+  d_ij double [note: 'weighted Gower distance over the components below']
+  d_ij_asymmetric double [note: 'canonical-canonical / non-NMD components set to NA first']
+  d_protein double [note: '1 - protein_sim, protein_sim = protein_pairs[[protein_metric]]']
+  d_cds_len double
+  d_start_codon double
+  d_stop_codon double
+  d_nmd double
+  aa_id_i varchar
+  aa_id_j varchar
+  w_i double [note: '1 / n_members']
+  w_j double
+
+  indexes {
+    (bin_id, transcript_id_i, transcript_id_j) [pk]
+  }
+
+  Note: 'NOT IN THE FINAL DB. The per-pair dissimilarity table lives only in the R session of 05d-Compute_Scores.R; it is aggregated into bin_information and discarded.'
+}
+
+Ref: protein_pairs.aa_id_1 > proteins.aa_id
+Ref: protein_pairs.aa_id_2 > proteins.aa_id
+Ref: bin_pairs_distance.bin_id > bins.bin_id
+Ref: bin_pairs_distance.transcript_id_i > transcripts.transcript_id
+Ref: bin_pairs_distance.transcript_id_j > transcripts.transcript_id
+Ref: bin_pairs_distance.aa_id_i > proteins.aa_id
+Ref: bin_pairs_distance.aa_id_j > proteins.aa_id
+
+// ---------------------------------------------------------------------------
+// Optional table, only written when scoring_settings.compute_sim_pid is TRUE.
+// Uncomment ONLY if the database you introspected does not already contain it.
+// ---------------------------------------------------------------------------
+// Table bin_pid_similarity [headercolor: #9467BD] {
+//   run_id varchar
+//   bin_id varchar [pk]
+//   n_orf integer
+//   n_comp integer
+//   mean_orf_width double
+//   sim_pid double
+//   sd_pid double
+//   sim_score double
+//   short_seqs integer
+//   long_seqs integer
+//   type varchar
+//   comments varchar
+// }
+// Ref: bin_pid_similarity.bin_id - bins.bin_id
+
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+TableGroup "ENDome core" [color: #1F77B4] {
+  bins
+  transcripts
+  cds
+  proteins
+  utr5
+  utr3
+}
+
+TableGroup "Bin Information Content" [color: #9467BD] {
+  bin_information
+}
+
+TableGroup "Transient (not persisted)" [color: #C0392B] {
+  protein_pairs
+  bin_pairs_distance
+}
+
+TableGroup "Provenance (proposed)" [color: #6C6C6C] {
+  runs
+}

@@ -39,6 +39,14 @@ configfile: "config/config.yaml"
 # Resolve the debug flag now that the config is loaded.
 _log(f"Snakemake utils imported in {_utils_import_time:.3f}s")
 
+# ── Wildcard constraints ──────────────────────────────────────────────
+wildcard_constraints:
+    dataset = "Wood|Ebbert|gencode",
+    group = "control|case|control_case|none",
+    merge_method = "isomatch|stringtie|ref",
+    txEnd = "\\dp",
+    sample_id = "[^/]+"
+    
 # ── Rule modules ──────────────────────────────────────────────────────
 _log("Importing individual rules:")
 
@@ -64,48 +72,100 @@ onerror:
 # ── Pipeline variables ────────────────────────────────────────────────
 input_dataset = config.get("input_dataset", ["Ebbert"])
 input_group = config.get("input_group", ["control"])
+merge_method = config.get("transcript_merge_method", ["isomatch"])
 pc_filter = config.get("orf_filter_preset", ["pc"])
 trunc_site = config.get("trunc_site", ["3p"])
 trunc_width = config.get("trunc_width", [500])
 
-# ── Wildcard constraints ──────────────────────────────────────────────
-wildcard_constraints:
-    dataset = "Wood|Ebbert|gencode",
-    group = "control|case|control_case|none",
-    txEnd = "\\dp",
-    sample_id = "[^/]+"
-
 # ── Helper functions ──────────────────────────────────────────────────
-def generate_param_files(run = False):
-    if not run:
-        return []
+def generate_param_files():
+    """List the per-step ``parameters.yaml`` targets to request in ``rule all``.
 
+    The files are always requested, so a missing one is written. Whether an
+    existing one is *rewritten* on every invocation is decided by
+    ``config["always_save_params"]`` (see ``create_save_params_rule``).
+    """
     param_dict = {
         "step01_params": expand(step01.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step02_params": expand(step02.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step03_params": expand(step03.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step04_params": expand(step04.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step05_params": expand(step05.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        # "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
     }
 
     return sum(param_dict.values(), [])
 
-rule all:
+rule all2:
     input:
         # Generate Parameters
-        parameters = generate_param_files(run = True),
+        # parameters = generate_param_files(),
         # Truncated ENDomes
-        truncated_gtf = expand(step05.path("gtxcutr/{dataset}.{group}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-            dataset = input_dataset, group = input_group, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+        # truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
+        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+        # # DuckDB
+        # duckdb_scores = expand(step05.path("DuckDB/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.scores.done"),
+        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+        # html = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
+        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
+        # Gencode
+        truncated_gencode_gtf = expand(step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
+            dataset = "gencode", group = "ref", merge_method = "ref", prefix = "gencode", orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
         # scUTRquant merged target catalog (one entry per ENDome) + resolved config.
         # PHASE 1 (config absent): these are built; the module below is skipped.
-        scutrquant_catalog = expand(step06.path("scUTRquant/ENDome_targets.yml"),
-            dataset = input_dataset, group = input_group),
-        scutrquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"),
-            dataset = input_dataset, group = input_group),
-        # PHASE 2 (config present): scUTRquant runs via its module -> txs.Rds.
-        # Empty on the first run; populated once the config exists (re-run).
-        scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"),
-            dataset = input_dataset, group = input_group)
+        # scutrquant_catalog = expand(step06.path("scUTRquant/ENDome_targets.yml"),
+        #     dataset = input_dataset, group = input_group),
+        # scutrquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"),
+        #     dataset = input_dataset, group = input_group),
+        # # PHASE 2 (config present): scUTRquant runs via its module -> txs.Rds.
+        # # Empty on the first run; populated once the config exists (re-run).
+        # scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"),
+        #     dataset = input_dataset, group = input_group)
+    default_target: False
+
+
+UTR_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
+    dataset = input_dataset, group = input_group, merge_method = merge_method, 
+    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
+UTR_empty_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
+    dataset = input_dataset, group = input_group, merge_method = merge_method, 
+    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
+UTR_equal_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
+    dataset = input_dataset, group = input_group, merge_method = merge_method, 
+    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
+UTR_bin_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
+    dataset = input_dataset, group = input_group, merge_method = merge_method, 
+    orf_filter = pc_filter, width = "UTR_bin", txEnd = trunc_site)
+
+gencode_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site)
+gencode_UTR_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
+gencode_UTR_empty_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
+gencode_UTR_equal_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
+
+genconde_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site)
+gencode_UTR_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
+gencode_UTR_empty_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
+gencode_UTR_equal_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
+gencode_UTR_bin_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
+    orf_filter = pc_filter, width = "UTR_bin", txEnd = trunc_site)
+
+rule all:
+    input:
+        gencode_default_report = genconde_report,
+        gencode_UTR_report = gencode_UTR_report,
+        gencode_UTR_empty_report = gencode_UTR_empty_report,
+        gencode_UTR_equal_report = gencode_UTR_equal_report,
+        gencode_UTR_bin_report = gencode_UTR_bin_report,
+        UTR_report = UTR_report,
+        UTR_empty_report = UTR_empty_report,
+        UTR_equal_report = UTR_equal_report,
+        UTR_bin_report = UTR_bin_report
     default_target: True

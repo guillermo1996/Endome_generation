@@ -1,0 +1,1491 @@
+---
+title: |
+  | ENDome Bin Characterization
+subtitle: |
+  | Bin Information Content
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL / Cambridge - Version 2.0
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+  md_document:
+    variant: markdown_github
+    toc: true
+    number_sections: true
+always_allow_html: true
+link-citations: true
+notes-after-punctuation: false
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/dependent/jhep-reports.csl
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+shhh <- suppressPackageStartupMessages
+
+shhh({
+  library(fs)
+  library(DBI)
+  library(duckdb)
+  library(conflicted)
+  library(tidyverse)
+})
+
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      out.width = "100%", fig.align = "center", dpi = 150,
+                      fig.height = 5.5, fig.width = 9.5)
+options(knitr.graphics.error = FALSE)
+```
+
+
+```{r setup-theme, echo = F, results = "asis"}
+## Custom sciRmdTheme with increased width.
+## Please ask guillermorocamora@gmail.com for more details.
+## Download from devtools::install_github("https://github.com/guillermo1996/grpSciRmdTheme")
+if(require(grpSciRmdTheme)){
+  grpSciRmdTheme::set.theme(
+    theme = "default",
+    color = NULL,
+    header.sticky = FALSE,
+    list.group.icon = "arrow",
+    font.family = "Arial",
+    font.color = "black",
+    header.color = "darkblue",
+    figure.perc = 100
+  )
+}
+
+## A bug in recent versions of KableExtra requires to load the HTML classes in
+## some circumstances.
+kableExtra::html_dependency_lightable()
+
+## Custom styles for the output html
+cat('
+<style type="text/css">
+table { caption-side: bottom }
+
+.dataTables_wrapper caption {
+  caption-side: bottom;
+  text-align: left;
+  font-size: 0.85em;
+  color: #666;
+}
+
+</style>')
+
+## To have sections tab sections inside an expanded list, apply the following template:
+
+# ### Hidden Section {.unlisted .unnumbered .hidden-heading .tabset .break7}
+# <button class="collapse-toggle" data-target="#collapsible_id">▶ Expand to see the results for Anna-Leigh TDP43 junction list:</button>
+#   
+# ::: {#collapsible_id .tabset-wrapper}
+# ```{r, fig.width=12, fig.height=4.5, results='asis', echo = F}
+# r <- lapply(iterable, function(i){
+#   cat("#### ", i, " {-}\n\n", sep = "")
+#   plot()
+#   cat("\n\n")
+# })
+# ```
+# :::
+theme_endome <- function(base_size = 11, legend_pos = "top"){
+  bs <- base_size
+
+  custom_theme <- theme_gray(base_size = bs) +
+    theme(
+      plot.title = element_text(size = bs * 1.27, face = "bold", hjust = 0, vjust = 1, margin = margin(b = bs/2)),
+      plot.subtitle = element_text(size = bs*0.82),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+      panel.background = element_rect(fill = "#FBFBFB", color = NA),
+      axis.text.x = ggplot2::element_text(color = "black", size = bs*0.82, angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(color = "black", size = bs*0.82),
+      axis.title.x = ggplot2::element_text(face = "bold", size = bs, margin = margin(t = 5)),
+      axis.title.y = ggplot2::element_text(face = "bold", size = bs, margin = margin(r = 10)),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "#444444", linewidth = 0.05, linetype = 2, inherit.blank = TRUE),
+      panel.grid.major.x = element_line(color = "#888888", linewidth = 0.05, linetype = 1, inherit.blank = TRUE),
+      legend.title = element_text(size = bs * 1.09),
+      legend.text = element_text(size = bs * 0.82),
+      legend.position  = legend_pos,
+      legend.key = element_rect(colour = "black", linewidth = 0.01),
+      legend.key.size = unit(bs*1.5, "pt"),
+      legend.key.spacing.y = unit(bs*0.15, "pt"),
+      legend.spacing.y = unit(bs*0.2, "pt"),
+      strip.text.x = element_text(color = "black", face = "bold", size = bs*0.82),
+      strip.background = element_rect(color = "black", linewidth = 0.5, linetype = "solid"),
+      strip.text.y = element_text(color = "black", face = "bold", size = bs*0.82),
+      plot.margin = margin(0.5, 0.5, 0.2, 0.5, "cm"),
+    )
+
+  if(legend_pos == "top.right"){
+    legend_top.right <- theme(
+      legend.position = "top",
+      legend.justification = "right",
+      legend.margin = margin(0, 0, 0, 0),   # inside the legend box
+      legend.box.margin = margin(-bs*2.2, 0, 0, 0),   # around the legend box
+      legend.box.spacing = unit(bs*0.5, "pt")
+    )
+    custom_theme <- custom_theme + legend_top.right
+  }else if(legend_pos == "inside.right"){
+    legend_inside.right <- theme(
+      legend.position = "inside",
+      legend.position.inside = c(1, 1),
+      legend.justification.inside = c(1, 1),
+      legend.background = element_rect(fill = NA, colour = NA),
+    )
+    custom_theme <- custom_theme + legend_inside.right
+  }
+
+  custom_theme
+}
+
+```
+
+```{r snakemake-preamble, echo = FALSE}
+# Define Snakemake interactive parameters ----
+if (!exists("snakemake")) {
+  library(methods)
+  Snakemake <- setClass(
+    "Snakemake",
+    slots = c(
+      input = 'list',
+      output = 'list',
+      params = 'list',
+      wildcards = 'list',
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
+  )
+  snakemake <- Snakemake(
+    input = list(
+      duckdb = file.path("~/RytenLab-Research/40-ENDome_generation", 
+                         "debug_results/Wood.control/05-Truncation-03688/DuckDB",
+                         "Wood.control.stringtie.pc.w500.3p.duckdb")
+    ),
+    output = list(
+      html = "Results/01-Bin_information/Wood.control.stringtie.pc.w500.3p.html"
+    ),
+    params = list(
+      merge_distance = 200,
+      protein_metric = "bsr_max",
+      length_scaling = "ratio",
+      member_weights = "uniform",
+      include_superseded = TRUE,
+      component_weights = list(
+        protein = 1.0,
+        cds_len = 0.1,
+        start_codon = 0.2,
+        stop_codon = 0.2,
+        nmd = 0.4)
+    ),
+    wildcards = list(
+      prefix = "Wood.control.stringtie",
+      orf_filter = "pc",
+      width = "500",
+      txEnd = "3p"
+    ),
+    threads = 4,
+    scriptdir = "~/RytenLab-Research/40-ENDome_generation/workflow/scripts"
+  )
+}
+```
+
+# Introduction
+
+This report aims to characterize a single *ENDome* GTF to answer how much biological information is lost when the transcripts that share a bin are collapsed into a single quantification unit? 
+
+To answer it, we first account for the merge itself (how many transcripts became how many bins), then describe the distribution of the per-bin **Bin Information Content** score, and finally identify the features that drive that score down and the bins that suffer the most. Every number shown is read from the ENDome DuckDB produced by the pipeline.
+
+## Motivation {-}
+
+The pseudoalignment software employed in the ENDome pipeline (`scUTRquant`, a `kallisto`/`bustools` wrapper) does not quantify transcripts, but rather **bins**. After the transcriptome has been assembled, cleaned and ORF-annotated, the package `txendcutr` truncates every transcript to a fixed length around one of its ends (3' vs 5' truncation). Then, transcripts of the same gene are merged if their truncated regions overlaps by more than the defined `merge_distance`. What survives after the merge is a bin, a single representative sequence that stands for every transcript that collapsed into it. The kallisto index, the count matrix and the differential-usage test downstream live at that resolution. 
+
+Thus, a 3' or 5'-tagged read cannot distinguish between two isoforms that share the last 500 bases. A bin whose member encode the same protein, initiate and terminate at the same codons and share the same NMD fate, loses nothing when collapsed. However, a bin that merges a full-length protein-coding isoform with a truncated, NMD-sensitive one is a different object entirely. Its abundance still can change between conditions, but it no longer maps onto any single biological event. The two cases are indistinguishable in the count matrix.
+
+The **Bin Information Content** is the score that separates them. Every bin is assigned a number between $[0, 1]$ measuring how much information is preserved when its members are collapsed. In this context, `1` means that the members are functionally interchangeable at the resolution of the features we can measure, and values approaching `0`mean the bin is a mixture. As the metric stands right now, it is computed from the ORF and protein features of the member transcripts, aggregated over every within-bin transcript pair with *Gower's general coefficient* and *Rao's quadratic entropy*. More information regarding these in the [Methods](#methods) section.
+
+This report characterizes a single *ENDome* configuration (i.e. one dataset, ORF filter, truncation width and site), and aims to cover three questions:
+
+1. **How merged are the different transcripts?** What fraction of bins hold each number of transcripts, and what fraction of the transcriptome sits in each class.
+2. **How much information survives the merging step?** The distribution of score, broken down by bin size under different variants.
+3. **What drives the lost in information?** Which of the different dissimilarity components contributes most, and which bins are the most affected.
+
+Note that there are no comparisons between ENDomes or settings in this report.
+
+# Hidden Section {.unlisted .unnumbered .hidden-heading .tabset .break4}
+
+## File paths {-}
+
+Following section defines the input/output paths employed in the script. All of them are based on the `main_path` were the script is being executed:
+
+```{r script-paths}
+# Snakemake inputs
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+
+main_path <- fs::path_expand("~/RytenLab-Research/40-ENDome_generation/")
+
+rel_to_main <- \(p, base = main_path) fs::path_rel(fs::path_expand(p), fs::path_expand(base))
+
+## Input paths
+duckdb_path <- path.expand(smk_inputs$duckdb)
+if(!file.exists(duckdb_path))stop("ENDome DuckDB not found: ", duckdb_path, call. = FALSE)
+
+### Helper library
+lib_dir <- path.expand(file.path(snakemake@scriptdir, "../lib"))
+if(!dir.exists(lib_dir)) lib_dir <- path.expand(file.path(snakemake@scriptdir, "lib"))
+```
+
+The table below lists every path resolved for this particular render, relative to `main_path`:
+
+```{r script-paths-table, echo = FALSE}
+tibble::tribble(
+  ~Element, ~Path,
+  "Main Path", main_path,
+  "DuckDB", paste0("./", rel_to_main(duckdb_path)),
+  "Helper Library", paste0("./", rel_to_main(fs::path_norm(lib_dir))),
+) %>%
+  kableExtra::kable(caption = "Paths resolved for this render.") %>%
+  kableExtra::kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "bordered"),
+    full_width = TRUE,
+    position = "left"
+  ) %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "20%") %>%
+  kableExtra::column_spec(2, width = "80%")
+```
+
+## Variables and parameters {-}
+
+Two different sets of values control what this report describes, and they are tracked differently.
+
++ The **wildcards** identify the ENDome, and are read off the name of the DuckDB file, built as `<prefix>.<orf_filter>.w<width>.<txEnd>.duckdb`. They are the dataset, sample group and assembly method (`prefix`), the ORF/biotype filtering preset applied before truncation (`orf_filter`), the length in bp of the window kept by `txendcutr` (`width`) and the end that window is anchored to (`txEnd`, either `3p` or `5p`). Together they build the `run_id` that is written into every table of the database.
+
++ The **parameters** identify the *scoring*, and are the ones `05d-Compute_Scores.R` was invoked with: how the truncation sites were merged into bins (`merge_distance`), which normalization of the MMseqs2 bit score defines protein similarity (`protein_metric`), how CDS length differences are mapped onto $[0, 1]$ (`length_scaling`), and how much each member transcript weighs inside its bin (`member_weights`).
+
+```{r script-parameters}
+# Snakemake parameters
+params <- snakemake@params
+wc <- snakemake@wildcards
+
+txEnd_label <- if (wc$txEnd == "3p") "3' End" else "5' End"
+
+# The run identifier
+run_id <- paste(wc$prefix, wc$orf_filter, paste0("w", wc$width), wc$txEnd, sep = ".")
+
+# Bin Information parameters
+protein_metric <- params$protein_metric
+length_scaling <- params$length_scaling
+member_weights <- params$member_weights
+merge_distance <- params$merge_distance
+component_weights <- unlist(params$component_weights)
+
+# Relevant for the notebook
+score_levels <- c(
+  info_score_norm = " Normalized Info Score",
+  info_score = "Default Rao Info Score",
+  info_score_asymmetric = "Asymmetric Info Score"
+)
+
+# Themes
+score_palette <- stats::setNames(c("#2c7fb8", "#41b6c4", "#d95f0e"), unname(score_levels))
+band_palette <- c("< 0.5" = "#b2182b", "0.5 - 0.7" = "#ef8a62", "0.7 - 0.9" = "#fddbc7", "0.9 - 1" = "#92c5de", "= 1" = "#2166ac")
+```
+
+```{r parameter-table, echo = FALSE}
+tibble::tribble(
+  ~Parameter, ~Value, ~Description,
+  "prefix", wc$prefix, "Dataset, sample group and transcript merge method",
+  "orf_filter", wc$orf_filter, "ORF/biotype filtering preset applied before truncation",
+  "width", paste0(wc$width, " bp"), "Length of the retained window at the truncation site",
+  "txEnd", paste0(wc$txEnd), sprintf("Truncation site: %s", txEnd_label),
+  "merge_distance", as.character(merge_distance), "Max distance (bp) between two truncation sites for them to merge into a single bin",
+  "protein_metric", protein_metric, "Which normalization of the MMseqs2 bit score defined protein similarity",
+  "length_scaling", length_scaling, "How the CDS length difference is mapped onto [0, 1]",
+  "member_weights", member_weights, "Weight given to each member transcript inside a bin",
+  # "component_weights", paste(sprintf("%s: %.1f", names(component_weights), component_weights), collapse = "<br>"), "Weights for each of the elements that defined how the information score is built"
+) %>%
+  kableExtra::kable(caption = "ENDome wildcards and parameters", format = "html", escape = FALSE) %>%
+  kableExtra::kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "bordered"),
+    full_width = TRUE,
+    position = "left"
+  ) %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "20%") %>%
+  kableExtra::column_spec(2, width = "20%") %>%
+  kableExtra::column_spec(3, width = "60%") %>%
+  kableExtra::row_spec(0:8, extra_css = "vertical-align: middle;")
+```
+
+
+The `component_weights` deserve a table of their own. They set how much each of the five features compared within a bin contributes to the final distance, and are described one by one in [The Dissimilarity Components](#dissimilarity-components). Only their *ratios* matter, since Gower renormalizes by the total comparable weight, which is what the `Relative Contribution` column reports:
+
+```{r weight-table, echo = FALSE}
+tibble::enframe(component_weights, name = "Component", value = "Weight") %>%
+  dplyr::mutate(
+    `Relative Contribution` = Weight / sum(Weight),
+    Description = dplyr::recode(Component,
+      protein = "1 - bit-score ratio of the two ORF proteins (MMseqs2)",
+      cds_len = "Relative difference in CDS length",
+      start_codon = "Graded disagreement of the initiation codon",
+      stop_codon = "Graded disagreement of the termination codon",
+      nmd = "Disagreement of the predicted NMD fate",
+      .default = "-")
+  ) %>%
+  dplyr::arrange(dplyr::desc(Weight)) %>%
+  dplyr::mutate(`Relative Contribution` = scales::percent(`Relative Contribution`, accuracy = 0.1)) %>%
+  kableExtra::kable(caption = "ENDome component weights in use.") %>%
+  kableExtra::kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "bordered"),
+    full_width = TRUE,
+    position = "left"
+  )
+```
+
+## Helper functions {-}
+
+Two helper library files are shared with the pipeline scripts:
+
+```{r helper-libraries}
+source(file.path(lib_dir, "Phf-DuckDB.R"))
+source(file.path(lib_dir, "Phf-Bin_Information_Score.R"))
+source(file.path(lib_dir, "hf-notebooks.R"))
+
+# Used to print the functions loaded by the HelperFunctions
+register_helper_files(
+  file.path(lib_dir, "Phf-DuckDB.R"),
+  file.path(lib_dir, "Phf-Bin_Information_Score.R")
+)
+```
+
++ `Phf-DuckDB.R` provides the necessary functions to access and manipulate the DuckDB. 
+
+```{r hf-duckdb, results='asis', echo = F}
+write_sections(file = "Phf-DuckDB.R")
+```
+
++ `Phf-Bin_Information_Score.R` holds the distance primitives used to build the scores of this report.
+
+```{r hf-bin-information-score, results='asis', echo = F}
+write_sections(file = "Phf-Bin_Information_Score.R")
+```
+
+There are also local helpers used in this report:
+
+```{r helper-functions}
+fmtInt <- function(x) format(round(x), big.mark = ",", trim = TRUE, scientific = FALSE)
+fmtNum <- function(x, digits = 3) formatC(x, format = "f", digits = digits)
+fmtPct <- function(x, accuracy = 0.1) scales::percent(x, accuracy = accuracy)
+
+scoreBinCentre <- function(x, binwidth) (pmin(floor(x / binwidth), ceiling(1 / binwidth) - 1) + 0.5) * binwidth
+scoreBand <- function(x) {
+  cut(x, breaks = c(-Inf, 0.5, 0.7, 0.9, 1 - 1e-9, Inf),
+      labels = c("< 0.5", "0.5 - 0.7", "0.7 - 0.9", "0.9 - 1", "= 1"),
+      right = FALSE, ordered_result = TRUE)
+}
+
+#' Default labels for a set of size-class upper bounds
+#'
+#' Turns `c(1, 2, 5, 10)` into `c("1", "2", "3-5", "6-10", "11+")`: a class whose
+#' lower and upper bound coincide is named by the single value, the rest by the
+#' range, and the open tail by `<max + 1>+`.
+sizeLabels <- function(breaks) {
+  lower <- c(1, utils::head(breaks, -1) + 1)
+  c(dplyr::if_else(lower == breaks, as.character(breaks), paste0(lower, "-", breaks)),
+    paste0(max(breaks) + 1, "+"))
+}
+
+#' Bucket a count (bin members, bins per gene, ...) into an ordered factor
+#'
+#' @param n numeric vector of counts.
+#' @param breaks numeric vector of class upper bounds. Defaults to the coarse
+#'   classes used across the Results.
+#' @param labels character vector, one per class (breaks + the open tail).
+#'   Defaults to `sizeLabels(breaks)`.
+#' @param drop logical, whether to drop the classes no element falls into.
+#'
+#' @returns Ordered factor of length `length(n)`.
+sizeClass <- function(n, breaks = c(1, 2, 3, 4, 5, 10, 20), labels = NULL, drop = FALSE) {
+  if (is.null(labels)) labels <- sizeLabels(breaks)
+  out <- cut(n, breaks = c(0, breaks, Inf), labels = labels,
+             right = TRUE, ordered_result = TRUE)
+  if (drop) out <- droplevels(out)
+  out
+}
+
+#' Reshape the three score variants of a per-bin frame into a long, plot-ready one
+pivotScores <- function(df) {
+  df %>%
+    dplyr::select(bin_id, n_members, size_class, dplyr::all_of(names(score_levels))) %>%
+    tidyr::pivot_longer(dplyr::all_of(names(score_levels)), names_to = "score", values_to = "value") %>%
+    dplyr::mutate(score = factor(score_levels[score], levels = unname(score_levels)))
+}
+
+#' Distributional summary of the `value` column, over the grouping given in `...`
+summariseScores <- function(df, ...) {
+  df %>%
+    dplyr::group_by(...) %>%
+    dplyr::summarise(
+      n_bins = dplyr::n(),
+      mean = mean(value, na.rm = TRUE),
+      sd = stats::sd(value, na.rm = TRUE),
+      min = min(value, na.rm = TRUE),
+      q05 = unname(stats::quantile(value, 0.05, na.rm = TRUE)),
+      q25 = unname(stats::quantile(value, 0.25, na.rm = TRUE)),
+      median = stats::median(value, na.rm = TRUE),
+      q75 = unname(stats::quantile(value, 0.75, na.rm = TRUE)),
+      q95 = unname(stats::quantile(value, 0.95, na.rm = TRUE)),
+      max = max(value, na.rm = TRUE),
+      pct_perfect = mean(value >= 1 - 1e-9, na.rm = TRUE),
+      pct_below_09 = mean(value < 0.9, na.rm = TRUE),
+      pct_below_07 = mean(value < 0.7, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+```
+
+## The Database Structure {-}
+
+All data used in this report is read from a single DuckDB file, generated by the ENDome pipeline. The connection is set as read-only, and data manipulation is usually performed in lazy `dplyr` tibbles.
+
+```{r db-connect}
+con <- DBI::dbConnect(duckdb::duckdb(), dbdir = duckdb_path, read_only = TRUE)
+db <- getTbls(con)
+
+if (!"bin_information" %in% names(db)) {
+  stop("`bin_information` is absent from ", duckdb_path,
+       ". Has 05d-Compute_Scores.R been run on this database?", call. = FALSE)
+}
+```
+
+```{r db-contents}
+db_contents <- tibble::tibble(table = names(db)) %>%
+  dplyr::mutate(
+    n_rows = purrr::map_dbl(db, \(x) as.numeric(dplyr::pull(dplyr::count(x), n))),
+    n_cols = purrr::map_int(db, \(x) length(colnames(x))),
+    Description = dplyr::recode(table,
+      proteins = "One row per distinct ORF protein sequence",
+      cds = "One row per distinct CDS locus, with its start/stop codons",
+      utr5 = "One row per distinct 5' UTR locus",
+      utr3 = "One row per distinct 3' UTR locus",
+      transcripts = "One row per transcript of the ORF-filtered transcriptome ",
+      bins = "One row per bin of this ENDome",
+      bin_information = "One row per bin, with its information content scores",
+      .default = "-"),
+  ) %>%
+  dplyr::rename(Table = table, "Num. Rows" = n_rows, "Num. Cols" = n_cols)
+
+renderTable(db_contents, caption = "Contents of the ENDome database.")
+```
+
+Each table is related to others through primary and foreign keys, declared at write time by `writeDuckTable()`. The following table reads that structure back from DuckDB's own `duckdb_constraints()` catalogue.
+
+```{r db-keys}
+dplyr::left_join(
+  getDbForeignKeys(con),
+  getDbPrimaryKeys(con) %>% dplyr::rename(child_table = table, child_pk = pk_col),
+  by = "child_table"
+) %>%
+  dplyr::select(child_table, child_pk, child_fk_cols, parent_table, parent_key_cols) %>%
+  renderTable(caption = "Referential structure of the database, read from `duckdb_constraints()`.")
+```
+
+The surrogate keys (`aa_id`, `cds_id`, `utr5_id`, `utr3_id`) are **content hashes** build from DNA/AA sequences and locus coordinates.
+
+# Hidden Section {.unlisted .unnumbered .hidden-heading}
+
+## Changelog {.tabset -}
+
+### v2.0 {-}
+
++ Full rewrite of the score around MMseqs2, as protein similarity is no longer the mean pairwise percentage identitity of the members.
++ Four ORF-level features were added, combined with Gower's general coefficient and aggregated per bin with Rao's quadratic enytopy.
+
+### v1.0 {-}
+
++ Initial release: a single score per bin defined as the mean *percentage identity* (PID) of every within-bin pair of ORF proteins.
+
+# Methods {.spacer #methods}
+
+<button class="collapse-toggle" data-target="next">▶ Expand to see information about the input data</button>
+
+::: {#collapsible_id .tabset-wrapper}
+## Input data {.unlisted .unnumbered }
+
+Bin information content is the last stage of the ENDome pipeline before differential transcript usage identification. Current pipeline looks like this:
+
+| Step | Rule / script | Software | Outputs |
+|---|---|---|---|
+| 01 | `minimap2_align` | minimap2 | Spliced alignment of the long reads |
+| 02 | `stringtie_*` / `isomatch_*` | StringTie, isomatch, gffcompare | Assembled and merged transcript models |
+| 03 | `pigeon_*` | pigeon (SQANTI3 lineage) | Structural classification and artifact removal |
+| 04 | `ORF_annotate` | ORFannotate | ORF calling: protein, CDS, 5'/3' UTR sequences, NMD prediction |
+| 04 | `ORF_categorization` / `ORF_filtration` | `04a`/`04b` (R) | Isoform summary and the `orf_filter` process |
+| 05a | `txendcutr_truncation` | `txendcutr` (fork of `txcutr`) | Truncation to the window, **bin definition**, merge and overlap tables |
+| 05b | `endome_export_proteins` | `05b` (R) | Protein FASTA keyed by content hash, plus the protein map |
+| 05 | `endome_mmseqs_search` | MMseqs2 | All-vs-all protein alignment |
+| 05c | `endome_build_db` | `05c` (R) | The ENDome DuckDB |
+| 05d | `endome_compute_scores` | `05d` (R) | Pairwise distances, Gower, Rao, `bin_information` |
+| 05 | `endome_report` | this document | Characterization |
+
+The scoring itself can be summarized in the following steps:
+
+1. **Transcript membership definition**: read the `bin_id` from `transcripts` and return the bin to transcript mapping. Each member of a bin of size $n$ receives a weight $w_i = 1/n$.
+2. **Feature selection**: every member transcript is joined to its CDS, UTRs, protein content and additional transcript information from `ORFannotate`.
+3. **Transcript pairing**: the within-bin pairs are enumerated and each pair receives one dissimilarity per feature.
+4. **Dissimilarity Combination**: each pair's component dissimilarities are combined into a single Gower distance $d_{ij}$. These distances are symmetric ($d_{ij}=d_{ji}$).
+5. **Aggregation**: the pair distances of each bin are aggregated into Rao's quadratic entropy, and turned into a score stored in the `bin_information` table.
+:::
+
+## The Dissimilarity components {.tabset .break3}
+
+The main idea behind the bin information score is to quantify *how different* are the different transcripts merged into the same bin. Five features are compared, each yielding a number between $[0, 1]$, where `0` means identical and `1` means maximally different. If a comparison cannot be made, value is represented by `NA`.
+
+### Protein similarity {-}
+
+This component carries the most relevant question about transcript similarity: `do these two transcripts encode the same protein? If not, how different are these proteins?` The weight assigned to this component is `r fmtNum(component_weights[["protein"]], 1)`
+
+The proteins of the complete ORF-filtered transcriptome are searched **all against all** with *MMseqs2*. This software was chosen over BLAST for throughput. MMseqs2 (*Many-against-Many sequence searching*) is a suite designed precisely to search and cluster huge protein and nucleotide sequence sets: it is implemented in C++, parallelizes across cores and servers, and its authors report it running up to 10,000 times faster than BLAST, achieving almost the same sensitivity at 100 times its speed. Given that our protein set is on the order of $10^5$ sequences, an all-vs-all BLAST is simply not affordable, while MMseqs2 completes the same search in minutes.
+
+The proteins of the complete ORF-filtered transcriptome are searched **all against all** with *MMseqs2*. This software was chosen over BLAST for throughput. MMseqs2 (*Many-against-Many sequence searching*) is a suite designed precisely to search and cluster huge protein and nucleotide sequence sets. Its authors report it running up to 10,000 times faster than BLAST, achieving almost the same sensitivity at 100 times its speed. Given that our protein set is on the order of $10^5$ sequences, an all-vs-all BLAST is simply not affordable, while MMseqs2 completes the same search in minutes.
+
+The **bit score** is preferred over the *percentage identity* (PID) computed with `pwalign::pairwiseAlignment()` mainly because PID ignores the length of the longer transcripts. It is computed over the aligned region only, so a truncated ORF aligning perfectly inside its full-length parent reaches 100% identity. The bit score grows with the length of the alignment, so once normalized against the self score (below) it becomes a measure of *how much of the protein is shared*. The same objection applies to MMseqs2's own `fident` field, which is why it is available but not recommended.
+
+`MMseqs2` works in three stages: i) a $k-mer$ prefilter that requires two consecutive similar $k-mers$ on the same diagonal, ii) an ungapped diagonal scoring pass, iii) and a vectorised Smith-Waterman alignment of what survives. The settings used here are deliberately permissive because we aim to answer *how similar are the two sequences*:
+
+```{r mmseqs-flag-table, echo = FALSE}
+tibble::tribble(
+  ~Flag, ~Value, ~Why,
+  "<code>-s</code>", "7.5", "Maximum sensitivity. A missed true homolog is scored as maximal dissimilarity, which is a far worse error than a spurious weak hit",
+  "<code>-e</code>", "10000", "We are measuring degree of similarity, not testing significance. A weak alignment is still information",
+  "<code>--add-self-matches</code>", "1", "<strong>Mandatory</strong>: the self bit score is the denominator of every ratio below",
+  "<code>--alignment-mode</code>", "3", "Score, coverage, identity and alignment ends",
+  "<code>-a</code>", "1", "Backtrace, needed for the identity and coverage fields",
+  "<code>--min-ungapped-score</code>", "0", "No cutoff at the ungapped scoring stage, for the same reason as <code>-e</code>",
+  "<code>-c</code> / <code>--cov-mode</code>", "0 / 0", "No coverage cutoff. A truncated ORF against its full-length parent has low coverage and is exactly the case we need to score",
+  "<code>--max-seqs</code>", "5000", "Keeps the prefilter from dropping members of large paralogue families",
+  "<code>--max-accept</code> / <code>--max-rejected</code>", "100000", "Same reasoning, at the alignment stage"
+) %>%
+  renderTable(caption = "MMseqs2 search settings used for the all-vs-all protein search.",
+              style = "md", escape = FALSE, row_padding = "3px") %>% 
+  kableExtra::column_spec(1, bold = TRUE, width = "20%") %>%
+  kableExtra::column_spec(2, width = "10%") %>%
+  kableExtra::column_spec(3, width = "70%") %>%
+  kableExtra::row_spec(0:9, extra_css = "vertical-align: middle;")
+```
+
+Raw bit scores are not directly comparable across pairs, as they scale with sequence length. Thus, they are normalized into a *bit-score ratio*, defined in one of these three flavors, where $b_{ij}$ is the bit-score reported by MMseqs2:
+
+$$
+\text{BSR}_{\max}(i,j) = \min\left(1, \frac{b_{ij}}{\max(b_{ii}, b_{jj})}\right),
+\qquad
+\text{BSR}_{\min}(i,j) = \min\left(1, \frac{b_{ij}}{\min(b_{ii}, b_{jj})}\right),
+\qquad
+\text{BSR}_{\text{mixed}}(i,j) = \min\left(1, \frac{b_{ij}}{\sqrt{b_{ii} b_{jj}}}\right)
+$$
+
+The choice between them (`protein_metric`, here **`r protein_metric`**) reflects how we treat containment. A short ORF that aligns perfectly inside a long ORF scores $\approx 1$ under `bsr_min` (permissive approach) and $\approx$ the length ratio under `bsr_max` (conservative approach). The metric `bsr_mixed` is the geometric mean of the two. At the same time, `fident` is also reported as MMseqs2's fraction of identical positions, and it is also available as a metric to be employed (although not recommended for the same reasons we decided to ignore the PID). The final protein distance is defined as $d_{\text{protein}} = 1 - \text{BSR}$.
+
+Two implementation details that matter for these results:
+
++ Reciprocal hits: MMseqs2 reports both $i \to j$ and $j \to i$ separately, and the two rows can disagree. The row with the highest `bits` is kept.
++ Missing scores in the results: a protein that was never searched makes every pair it belongs to as *non-comparable*. That is, the distance is set as `NA` and the component drops out of the Gower weighting. A protein that was searched but returned no hit against another protein is set a completely dissimilar and gets $\text{BSR} = 0$. 
+
+### CDS length {-}
+
+Defined as:
+
+$$
+d_{\text{cds_len}} =
+\begin{cases}
+\dfrac{|L_i - L_j|}{\max(L_i, L_j, 1)} & \text{`ratio`} \\[2ex]
+\dfrac{|L_i - L_j|}{\max(L_i + L_j, 1)} & \text{`canberra`}
+\end{cases}
+$$
+
+with `length_scaling` = **`r length_scaling`**. Both map a ratio variable into $[0, 1]$, with `ratio` being the fraction of the longer CDS that is not shared and `canberra` being the usual Canberra distance term, which divides by the *sum* of the two lengths instead of the larger one. Since $\max(L_i, L_j) \leq L_i + L_j \leq 2\max(L_i, L_j)$, `canberra` always lies between one half and the whole of `ratio`: it produces the same ordering, but compresses the scale and only approaches 1 in the limit where one of the two lengths goes to zero. In practice it is simply gentler on large differences, as a 1000 nt CDS against a 500 nt one scores 0.50 under `ratio` and 0.33 under `canberra`, while 1000 nt against 100 nt scores 0.90 and 0.82 respectively.
+
+This component is redundant with `d_protein` under `bsr_max`, which is why it carries such a low weight (`r fmtNum(component_weights[["cds_len"]], 2)`). It is kept to separate two ORFs that *align* well but differ in extent.
+
+### Initiation and termination codons {-}
+
+This component is split into three different levels:
+
+```{r codon-distance-table, echo = FALSE}
+tibble::tribble(
+  ~Situation, ~Distance,
+  "Same codon", "0",
+  "Both canonical, or both non-canonical, but a different codon (e.g. <code>TGA</code> vs <code>TAA</code>)", "0.5",
+  "One canonical, the other not", "1"
+) %>%
+  renderTable(caption = "Distance levels for the initiation and termination codon components.",
+              style = "md", escape = FALSE, row_padding = "3px") %>% 
+  kableExtra::column_spec(1, width = "80%") %>%
+  kableExtra::column_spec(2, bold = TRUE, width = "20%") %>%
+  kableExtra::row_spec(0:3, extra_css = "vertical-align: middle;")
+```
+
+Canonical means `ATG` for initiation and `TAA`/`TAG`/`TGA` for termination. If the transcript has no ORF (and thus no codon), the component drops out. Given that all protein-coding transcripts share the same canonical start codon, the vast majority of pairs sit at 0 on both components, and they are only relevant when a bin mixes a canonical ORF with a non-canonical one. They are therefore given a deliberately small weight: start_codon = `r fmtNum(component_weights[["start_codon"]], 2)` and stop_codon = `r fmtNum(component_weights[["stop_codon"]], 2)`.
+
+### NMD Sensitivity {-}
+
+A binary discordance on the `NMD_sensitive` flag reported by `ORFannotate`. It is the second-heaviest component (`r fmtNum(component_weights[["nmd"]], 2)`) because a bin that mixes a stable isoform with an NMD target is collapsing two very different outcomes.
+
+### Others {-}
+
+Several other components were considered and are already implemented in `05d-Compute_Scores.R`, but are left out of the current score until we settle on how they should be weighted. All of them reuse the same primitives, so enabling one is a matter of adding its column and its weight:
+
+```{r discarded-components-table, echo = FALSE}
+tibble::tribble(
+  ~Candidate, ~Definition, ~`Why it was left out`,
+  "<code>d_junctions</code>", "<code>relativeDelta()</code> of the number of splice junctions", "Largely redundant with the CDS length and the protein components, and it counts junctions anywhere in the transcript, including outside the truncation window",
+  "<code>d_utr_binned</code>", "<code>relativeDelta()</code> of the length of the UTR at the truncation site", sprintf("The strongest candidate. It measures the part of the transcript the assay actually reads, so two members with very different %s lengths are genuinely different regulatory objects even with identical ORFs", if (wc$txEnd == "3p") "3' UTR" else "5' UTR"),
+  "<code>d_structural_cat</code> / <code>d_subcategory</code>", "<code>discordance()</code> of the SQANTI3 structural category and subcategory", "Descriptive of the <em>annotation status</em> of a transcript rather than of its product; two members can differ here while encoding the same protein",
+  "<code>d_biotype</code>", "<code>discordance()</code> of <code>ref_gene_type</code> and <code>ref_transcript_type</code>", "Nearly constant under an <code>orf_filter</code> that already selects protein-coding transcripts"
+) %>%
+  renderTable(caption = "Dissimilarity components implemented but not used in the current score.",
+              style = "md", escape = FALSE, row_padding = "3px") %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "20%") %>%
+  kableExtra::column_spec(2, width = "30%") %>%
+  kableExtra::column_spec(3, width = "50%") %>%
+  kableExtra::row_spec(0:4, extra_css = "vertical-align: middle;")
+```
+
+Additionally, **domain-level protein similarity** (Pfam/InterPro annotation, which would say *which* part of a protein is shared rather than how much) is also being considered for future iterations of the pipeline.
+
+## Gower's General Coefficient
+
+The dissimilarity components generated in the previous section are of incompatible types. `d_protein` is a continuous, normalized alignment score; `d_cds_len` is a continuous ratio; `d_start_codon` and `d_stop_codon` are three-level ordinal comparisons taking values in $\{0, 0.5, 1\}$; and `d_nmd` is a plain binary discordance. There is no common measurement scale that all five naturally live on, so each has to be mapped into $[0, 1]$ by its own rule.
+
+On top of that, they can produce incomplete comparisons (i.e. a transcript without ORF has no CDS and cannot compare `d_protein` or `d_cds_len`). A standard Euclidean or Manhattan distance is not properly defined in this scenario. For this purpose, Gower's general coefficient of similarity is the right tool. Each variable $k$ is reduced to a per-pair score $d_{ijk} \in [0, 1]$ and a comparability indicator $\delta_{ijk} \in \{0, 1\}$, with the variables combined as a weighted mean over the comparable ones:
+
+$$
+d_{ij} = \frac{\sum_k w_k \, \delta_{ijk} \, d_{ijk}}{\sum_k w_k \, \delta_{ijk}}
+$$
+
+
+Two properties make this the right choice here:
+
+1. **Missingness is handled by construction**: a non-comparable variable is removed from both the numerator and denominator, so a pair scored on three variables is neither penalized nor rewarded relative to a pair scored on five. A pair with no comparable variables at all returns `NA` rather than an artificial 0 or 1.
+2. **Weights are relative**: because the denominator is the total comparable weight, only the ratios between weights matter. The configured ratios (e.g. protein = `r fmtNum(component_weights[["protein"]], 2)` against NMD = `r fmtNum(component_weights[["nmd"]], 2)`) are a statement of how each component is as relevant as the other. Setting a weight to 0 removes the variable.
+
+### Symmetric and Asymmetric variables {-}
+
+Gower's original formulation distinguishes **symmetric** from **asymmetric** binary variables. For an asymmetric variable, a joint absence (both members sitting in the reference state) carries no information and should be excluded from the comparison ($\delta_{ijk} = 0$). 
+
+Two of our components have this behavior:
+
+- **Codons**: the overwhelming majority of ORFs initiate at `ATG` and terminate at one of the three canonical stops. Two canonical starts codons is the null state of the transcriptome, and treating it as evidence of similarity inflates every score.
+- **NMD**: most transcripts are not NMD-sensitive. Two NMD-insensitive members agreeing adds no information at all, while two NMD-sensitive members is more informative.
+
+The pipeline therefore emits a second distance, $d_{ij}^{\text{asym}}$, identical to the first except that `d_start_codon`, `d_stop_codon` and `d_nmd` are set to `NA` when both members sit in the reference state. Asymmetric scores are systematically lower and more discriminating for the genuinely mixed bins, at the cost of resting on fewer variables and returning `NA` for a pair on which nothing remains comparable. Both are reported in [Information Content](#information-content) and the choice between them is a reporting decision.
+
+## Rao's quadratic entropy {.tabset .break3}
+
+Since bins are sets and not individual pairs, the pairwise distances must be aggregated. For this purpose, **Rao's quadratic entropy** is the natural aggregate, an originally ecological measure of functional diversity that combines relative abundances with pairwise dissimilarities:
+
+$$
+Q = \sum_{i} \sum_{j} p_i \, p_j \, d_{ij}
+$$
+
+We can reinterpret its original context with bins being the communities, transcripts being the species and $p_i$ is the relative weight of each member $i$. With `member_weights = "uniform"`, $p_i = 1/n$ for every member of a bin of size $n$. Using this metric allows for the future implementation of weighting members by their expression (not possible at this stage) or any other factor, such as TSL or structural category.
+
+In our current approach, $d_{ij} = d_{ji}$ and $d_{ii} = 0$, so the double sum reduces to the upper triangle:
+
+$$
+Q = 2 \sum_{i < j} p_i \, p_j \, d_{ij}
+$$
+
+### Normalized score {-}
+
+As it stands, $Q$ depends on the size of the bin by construction. To see it, take a bin of $n$ members in which every pair happens to be *equally* dissimilar, then $Q = (1 - 1/n)\,\bar{d}$, the $n$ zero-distance self-comparisons of the diagonal are part of the total mass, and they dilute $Q$ by a factor $1 - 1/n$. The maximum attainable $Q$ therefore grows with bin size (0 for a singleton, 0.5 for a pair, 0.9 for a bin of ten), and a 2-member bin cannot score below 0.5 no matter how unrelated its members are.
+
+That makes it the right quantity for ranking merges by total information lost, but not the most suitable to answer whether the members of a given bin resemble each other. To remove the size term exactly, we define the *comparable pair mass* $M$ as the sum of the pair weights alone, and divide by it:
+
+$$
+M = 2 \sum_{i<j} p_i \, p_j \, \delta_{ij}, \qquad
+Q_{\texttt{norm}} = \frac{Q}{M}, \qquad
+\texttt{info_score_norm} = 1 - Q_{\texttt{norm}}
+$$
+
+In this case, $\delta_{ij}$ is 1 when the pair has at least one comparable variable, so $M = 1 - 1/n$ when every pair could be scored. $Q_{\texttt{norm}}$ is then simply the mean pairwise Gower distance over the comparable pairs, and $1 - Q_{\texttt{norm}}$ is directly comparable across bins of any size. This is the default score and the one to use to answer if transcripts within a bin are more heterogeneous than in this other bin.
+
+The two are related by the following identity:
+
+$$
+\texttt{info_score} = 1 - (1 - \texttt{info_score_norm}) \cdot M
+$$
+
+### Non-normalized score (default Rao's) {-}
+
+The default Rao's metric $Q$ is kept for comparisons, as it answers what is the expected dissimilarity between two individuals drawn at random from the community. Under this assumption, it makes sense that a bin with two completely different transcripts still reports $Q = 0.5$, as there is a 50% chance of drawing the same transcript twice.
+
+$$
+\texttt{info_score} = 1 - Q
+$$
+
+### Asymmetric approach {-}
+
+Identical to `info_score_norm` but computed from $d_{ij}^{\text{asym}}$, with the reference-state exclusion described above. It is normalized by its own comparable pair mass $M^{\texttt{asym}}$, which is smaller than $M$ whenever a pair lost a component to the reference-state rule.
+
+$$
+\texttt{info_score_norm}^{\texttt{asym}} = 1 - Q_{\texttt{norm.}}^{\texttt{asym}}
+$$
+
+## Singletons
+
+A bin of one transcript has no pairs, and thus $Q = 0$, $M = 0$ and all three scores fall back to 1. These bins are excluded from every distributional summary in this report, as they are usually the majority of the bins.
+
+## Software
+
+The score depends on the following external software and published methods:
+
+```{r software-table, echo = FALSE}
+tibble::tribble(
+  ~Software, ~Role, ~Reference,
+  "txendcutr", "Truncation of the transcriptome to a fixed window and definition of the bins", "Fork of txcutr (Fansler et al.)",
+  "MMseqs2", "All-vs-all protein alignment", "Steinegger & Söding, Nat Biotechnol 2017",
+  "ORFannotate", "ORF calling, protein/UTR sequences, NMD prediction", "---",
+  "pigeon", "Structural classification and artifact removal", "SQANTI3 lineage",
+  "DuckDB", "Columnar store for the ENDome tables and the pair enumeration", "Raasveldt & Mühleisen, SIGMOD 2019",
+  "Gower's coefficient", "Combination of mixed-type, incomplete features", "Gower, Biometrics 1971",
+  "Bit-score ratio", "Length-independent normalisation of alignment scores", "Rasko et al., BMC Bioinformatics 2005",
+  "Rao's quadratic entropy", "Aggregation of pairwise distances into a per-bin diversity", "Rao, Theor Popul Biol 1982"
+) %>%
+  renderTable(caption = "Software and methods the Bin Information Content depends on.")
+```
+
+# Run information {.spacer}
+
+```{r load-scores}
+bin_information <- db$bin_information %>%
+  dplyr::select(bin_id, n_members, dplyr::all_of(names(score_levels)),
+                n_pairs, n_pairs_scored, q_rao, q_rao_norm, pair_mass,
+                dplyr::starts_with("mean_d_")) %>%
+  dplyr::left_join(dplyr::select(db$bins, bin_id, gene_id, n_superseded), by = "bin_id") %>%
+  dplyr::collect() %>%
+  dplyr::mutate(size_class = sizeClass(n_members), .after = n_members)
+
+# Remove bins with only one member
+merged_bins <- bin_information %>%
+  dplyr::filter(n_members >= 2) %>%
+  dplyr::mutate(size_class = droplevels(size_class))
+```
+
+Before looking at any score, the bin table is loaded and split into different categories. The following table split into three blocks:
+
++ The first describes the **input transcriptome**, what `txendcutr` was handed after the ORF filter.
++ The second describes the **ENDome** it produced, how many quantification units exist and how many of them are genuine merges.
++ The third describes **how each transcript ended up in its bin**, which is the part that matters for the score. A transcript either is the representative of its bin, was merged because its truncated region is identical to another transcript of the same gene (*merged by overlap*), or was folded in because its truncation site fell within `merge_distance` of the representative's (*merged by proximity*).
+
+```{r accounting}
+tx_info_df <- db$transcripts %>%
+  dplyr::summarise(
+    n_transcripts = dplyr::n(),
+    n_genes = dplyr::n_distinct(gene_id),
+    n_superseded = sum(as.integer(!is.na(superseded_by)), na.rm = TRUE),
+    n_with_orf = sum(as.integer(!is.na(aa_id)), na.rm = TRUE),
+    n_nmd = sum(as.integer(NMD_sensitive), na.rm = TRUE)
+  ) %>%
+  dplyr::collect()
+
+bin_info_df <- db$bins %>%
+  dplyr::summarise(
+    n_bins = dplyr::n(),
+    n_singleton  = sum(as.integer(n_members == 1), na.rm = TRUE),
+    n_multi = sum(as.integer(n_members >= 2), na.rm = TRUE),
+    n_members = sum(n_members, na.rm = TRUE)
+  ) %>%
+  dplyr::collect()
+
+n_proximity <- tx_info_df$n_transcripts - tx_info_df$n_superseded - bin_info_df$n_bins
+accounting_tbl <- tibble::tribble(
+  ~Quantity, ~N, ~Denominator, ~Definition,
+  # -- Transcriptome
+  "Transcripts", tx_info_df$n_transcripts, NA_real_, "ORF-filtered transcriptome; the input to txendcutr",
+  "Genes", tx_info_df$n_genes, NA_real_, "Distinct gene_id across those transcripts",
+  "Transcripts with a called ORF", tx_info_df$n_with_orf, tx_info_df$n_transcripts, "aa_id is not missing (ORFannotate)",
+  "Transcripts predicted NMD-sensitive", tx_info_df$n_nmd, tx_info_df$n_transcripts, "50-nt rule applied by ORFannotate",
+  # -- Bins
+  "Bins in the ENDome", bin_info_df$n_bins, NA_real_, "The quantification units after truncation; one representative transcript each",
+  "Singleton bins", bin_info_df$n_singleton, bin_info_df$n_bins, "One member transcript; score 1 by construction, excluded from every summary below",
+  "Multi-transcript bins", bin_info_df$n_multi, bin_info_df$n_bins, "Two or more member transcripts; the bins that can lose information",
+  # -- Transcript in bins
+  "Representative transcripts", bin_info_df$n_bins, tx_info_df$n_transcripts, "Transcripts that are representative of their bin",
+  "Merged by overlap transcripts", tx_info_df$n_superseded, tx_info_df$n_transcripts, "Transcripts merged because they overlap exactly after truncation",
+  "Transcripts merged by proximity", n_proximity, tx_info_df$n_transcripts, "Transcripts merged because they fell within merge_distance of the representative"
+  ) %>%
+  dplyr::mutate(
+    N = as.numeric(N),
+    `%` = dplyr::if_else(is.na(Denominator), "", paste0(fmtNum(100*N / Denominator, 1), "%")),
+    .after = N
+  ) %>%
+  dplyr::select(-Denominator)
+
+accounting_tbl %>%
+  renderTable(style = "md",
+              caption = "Transcript and bin information for this ENDome.", align = c("l", "r", "r", "l")) %>%
+  kableExtra::pack_rows("Input transcriptome", 1, 4, label_row_css = "background-color: #CCC; color: #fff;") %>%
+  kableExtra::pack_rows("ENDome properties", 5, 7, label_row_css = "background-color: #CCC; color: #fff;") %>%
+  kableExtra::pack_rows("Bin composition", 8, 10, label_row_css = "background-color: #CCC; color: #fff;") %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "28%") %>%
+  kableExtra::column_spec(2:3, width = "8%") %>%
+  kableExtra::column_spec(4, width = "56%", color = "#555")
+```
+
+Note that `txendcutr` drops a transcript before binning when its truncated exon structure is identical to another transcript's of the same gene: after truncating to `r wc$width` bp at the `r txEnd_label`, the two are literally the same sequence and no assay could tell them apart. They are kept in the database so they remain traceable, are attached to the bin of the transcript that superseded them, and are counted in `n_members`. This is the conservative choice, as `n_members` then reports how many annotated transcripts the bin speaks for, rather than how many distinct truncated sequences went into it. 
+
+# Bin Size Distribution {.spacer}
+
+The first thing to look for is how much merging happened. Below, `n_bins` is the number of bins holding exactly that many transcripts and `n_transcripts` the number of transcripts living in them, both expressed as a share of the total and cumulatively.
+
+```{r bin-size-table}
+bin_size_table <- bin_information %>%
+  dplyr::count(n_members, name = "n_bins") %>%
+  dplyr::arrange(n_members) %>%
+  dplyr::mutate(
+    n_transcripts = n_members * n_bins,
+    pct_bins = n_bins / sum(n_bins),
+    pct_transcripts = n_transcripts / sum(n_transcripts),
+    cum_pct_bins = cumsum(pct_bins),
+    cum_pct_transcripts = cumsum(pct_transcripts)
+  )
+
+### Sizes above 12 are pooled into a single tail row so the table stays readable.
+bin_size_table %>%
+  dplyr::mutate(size = dplyr::if_else(n_members <= 12, as.character(n_members), "13+")) %>%
+  dplyr::group_by(size, .drop = TRUE) %>%
+  dplyr::summarise(
+    n_bins = sum(n_bins), n_transcripts = sum(n_transcripts),
+    pct_bins = sum(pct_bins), pct_transcripts = sum(pct_transcripts),
+    cum_pct_bins = max(cum_pct_bins), cum_pct_transcripts = max(cum_pct_transcripts),
+    order = min(n_members), .groups = "drop"
+  ) %>%
+  dplyr::arrange(order) %>%
+  dplyr::select(-order) %>%
+  dplyr::mutate(dplyr::across(c(pct_bins, pct_transcripts, cum_pct_bins, cum_pct_transcripts), \(x) fmtPct(x, 0.01))) %>%
+  dplyr::rename(
+    Size = size, `N. Bins` = n_bins, `N. Transcripts` = n_transcripts,
+    `% bins` = pct_bins, `% transcripts` = pct_transcripts,
+    `Cum. % bins` = cum_pct_bins, `Cum. % transcripts` = cum_pct_transcripts
+  ) %>%
+  renderTable(caption = "Percentage of bins holding exactly N transcripts, and the share of the transcriptome they account for.", style = "md",
+              row_padding = "3px", digits = 1)
+```
+
+The same table can be presented in the following figure:
+
+```{r, fig.width=11}
+### One class per bin size up to 14, everything above pooled into "15+".
+bin_size_long <- bin_size_table %>%
+  dplyr::mutate(size_class = sizeClass(n_members, breaks = 1:14)) %>%
+  dplyr::group_by(size_class) %>%
+  dplyr::summarise(across(c(pct_bins, pct_transcripts), sum),
+                   across(c(cum_pct_bins, cum_pct_transcripts), max),
+                   .groups = "drop") %>%
+  tidyr::pivot_longer(-size_class, names_to = "quantity", values_to = "pct") %>%
+  dplyr::mutate(quantity = dplyr::recode(
+    quantity,
+    pct_bins = "% of bins", pct_transcripts = "% of transcripts",
+    cum_pct_bins = "Cumulative % of bins",
+    cum_pct_transcripts = "Cumulative % of transcripts"))
+
+### Split once here; the cumulative figure below reuses both halves.
+bin_size_shares <- dplyr::filter(bin_size_long, quantity %in% c("% of bins", "% of transcripts"))
+bin_size_cumulative <- dplyr::filter(bin_size_long, grepl("^Cumulative", quantity))
+
+bin_size_shares %>%
+  ggplot(aes(x = size_class, y = pct, fill = quantity)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.8, color = "black", linewidth = 0.4) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0, 0.1, 0)) +
+  scale_x_discrete(guide = guide_axis(angle = 0)) +
+  scale_fill_manual(values = c("% of bins" = "#2c7fb8", "% of transcripts" = "#fdae61")) +
+  labs(
+    x = "Bin size", y = NULL, fill = NULL,
+    title = "Distribution of Bin sizes",
+    subtitle = sprintf("%s bins over %s binned transcripts | %s bp at the %s | merge distance %i bp",
+                       fmtInt(bin_info_df$n_bins), fmtInt(bin_info_df$n_members),
+                       wc$width, txEnd_label, merge_distance)
+  ) +
+  guides(fill = guide_legend(override.aes = list(linewidth = 0.4))) +
+  theme_endome(base_size = 13, legend_pos = "top.right")
+```
+
+The following information regarding bin size can also be described:
+
+```{r bin-size-summary}
+tibble::tribble(
+  ~Quantity, ~Value,
+  "Number of Bins", fmtInt(nrow(bin_information)),
+  "% singleton bins", fmtPct(mean(bin_information$n_members == 1)),
+  "% bins with 2 members", fmtPct(mean(bin_information$n_members == 2)),
+  "% bins with 3+ members", fmtPct(mean(bin_information$n_members >= 3)),
+  "Mean bin size", fmtNum(mean(bin_information$n_members), 2),
+  "Median bin size", fmtNum(stats::median(bin_information$n_members), 1),
+  "99th percentile bin size", fmtNum(unname(stats::quantile(bin_information$n_members, 0.99)), 1),
+  "Largest bin", fmtInt(max(bin_information$n_members))
+) %>%
+  renderTable(caption = "Bin size summary", style = "md", row_padding = "2px", digits = 1)
+```
+
+The share of transcripts here represents how much of the annotated transcriptome is folded away. Overlaying the *cumulative* version of both series makes the gap easier to read. Each line answer *what share of bins sits in a bin of at most this size?*, so the vertical distance between the two curves is the share of the transcriptome held in bins larger than that point. 
+
+```{r bin-size-cumulative-plot, fig.height=5, fig.width=12}
+ggplot(mapping = aes(x = size_class, y = pct)) +
+  geom_col(data = bin_size_shares, aes(fill = quantity),
+           position = position_dodge(width = 0.8), width = 0.8, colour = "black", linewidth = 0.4) +
+  geom_line(data = bin_size_cumulative, aes(colour = quantity, group = quantity),
+            linewidth = 0.6) +
+  geom_point(data = bin_size_cumulative, aes(colour = quantity),
+             shape = 21, fill = "white", size = 2, stroke = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0, 0.05, 0)) +
+  scale_x_discrete(guide = guide_axis(angle = 0)) +
+  scale_fill_manual(values = c("% of bins" = "#2c7fb8", "% of transcripts" = "#fdae61")) +
+  scale_colour_manual(values = c("Cumulative % of bins" = "#1a4f73", "Cumulative % of transcripts" = "#c1121f")) +
+  labs(
+    x = "Bin size", y = NULL, fill = NULL, colour = NULL,
+    title = "Distribution of Bin sizes + Cumulative",
+    subtitle = sprintf("%s bins over %s binned transcripts | %s bp at the %s | merge distance %i bp",
+                       fmtInt(bin_info_df$n_bins), fmtInt(bin_info_df$n_members),
+                       wc$width, txEnd_label, merge_distance)) +
+  guides(fill = guide_legend(order = 1, override.aes = list(linewidth = 0.4)),
+         colour = guide_legend(order = 2)) +
+  theme_endome(base_size = 13, legend_pos = "right")
+```
+
+## Bins per gene
+
+The distribution below represents the number of bins each gene is split into. It decided which genes the downstream analysis can say in terms of differential UTR/transcript usage.
+
+```{r bins-per-gene-plot, fig.height = 4.5}
+gene_bins_df <- bin_information %>%
+  dplyr::filter(!is.na(gene_id)) %>%
+  dplyr::group_by(gene_id) %>%
+  dplyr::summarise(
+    n_bins = dplyr::n(),
+    n_transcripts = sum(n_members),
+    largest_bin = max(n_members),
+    .groups = "drop"
+  )
+
+gene_bins_df %>%
+  dplyr::mutate(bins_class = sizeClass(n_bins, breaks = 1:9)) %>%
+  dplyr::count(bins_class) %>%
+  dplyr::mutate(pct = n/sum(n)) %>%
+  ggplot(aes(x = bins_class, y = pct)) +
+  geom_col(fill = "#2c7fb8", width = 0.7, color = "black", linewidth = 0.5) +
+  geom_text(aes(label = fmtPct(pct, 0.1)), vjust = -0.4, size = 3, colour = "black") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0, 0.12, 0)) +
+  scale_x_discrete() +
+  labs(
+    x = "Bins per gene", y = "% of genes",
+    title = "Distribution of bins per gene",
+    subtitle = sprintf("%s genes carry at least one bin", fmtInt(nrow(gene_bins_df)))
+  ) +
+  theme_endome(base_size = 11)
+```
+
+A gene reduced to a single bin has no ability to change between conditions. Note that its abundance can still go up or down and be detectable by a differential expression analysis. However, since differential transcript/UTR usage ask how a gene's output is split across its quantification units, with a single unit there is nothing to fit. Genes carrying two or more bins are therefore the population every result downstream is implicitly conditioned on, and they are also the genes for which the information content of each individual bin matters most. A usage shift between two bins is only interpretable if each bin stands for something coherent.
+
+# Information Content {.spacer #information-content}
+
+## Global Distributions
+
+Each score variant is summarized in its own row group, and within each group over two bin sets:
+
++ `Subset`: all bins covers every bin in the ENDome, including singletons, which score 1 by construction. Merged bins (n ≥ 2) keeps only multi-transcript bins. 
++ `N. bins`: number of bins in the row, and the denominator for everything that follows. Missing scores are dropped pairwise.
++ `Mean, SD`: reported for completeness, but the score is capped at 1 and left-skewed, so the mean is pulled upward and the SD is not symmetric around it.
++ `Min, 5%, 25%, Median, 75%, 95%, Max`: sample minimum, the four percentiles, and sample maximum. 
++ `= 1`: proportion of bins with a perfect score.
++ `< 0.9, < 0.7`: proportion of bins below each threshold.
+
+```{r score-summary-global}
+scores_long <- pivotScores(bin_information)
+merged_long <- pivotScores(merged_bins)
+headline <- merged_bins %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    median_norm = stats::median(info_score_norm, na.rm = TRUE),
+    pct_below_09 = mean(info_score_norm < 0.9, na.rm = TRUE),
+    pct_below_07 = mean(info_score_norm < 0.7, na.rm = TRUE),
+    pct_perfect = mean(info_score_norm >= 1 - 1e-9, na.rm = TRUE),
+    median_asym = stats::median(info_score_asymmetric, na.rm = TRUE)
+  )
+
+score_tbl <- dplyr::bind_rows(
+  summariseScores(scores_long, score) %>% dplyr::mutate(subset = "All bins", .before = 1),
+  summariseScores(merged_long, score) %>% dplyr::mutate(subset = "Merged bins (n >= 2)", .before = 1)
+) %>%
+  dplyr::arrange(score) %>%
+  dplyr::mutate(dplyr::across(dplyr::starts_with("pct_"), \(x) fmtPct(x, 0.1)))
+
+score_tbl %>%
+  dplyr::select(-score) %>%
+  renderTable(style = "md",
+              caption = "Distribution of the three score variants.",
+              align = c("l", rep("r", 13))) %>%
+  kableExtra::pack_rows(index = table(score_tbl$score),
+                        label_row_css = "background-color: #999; color: #fff;") %>%
+  kableExtra::column_spec(1, bold = TRUE)
+```
+
+Of the `r fmtInt(headline$n)` merged bins, the median normalized score is `r fmtNum(headline$median_norm, 3)`, `r fmtPct(headline$pct_perfect)` are perfectly concordant (their members are indistinguishable on all features), `r fmtPct(headline$pct_below_09)` fall below 0.9 and `r fmtPct(headline$pct_below_07)` below 0.7. Under the asymmetric treatment the median drops to `r fmtNum(headline$median_asym, 3)`. The gap between those two medians is the size of the agreement that came from both members simply sitting in the transcriptome's default state (canonical codons, no NMD) rather than from anything the merge preserved.
+
+The figure below represent the same information summarized as a violin plot. The boxplot within carries the median and the quartiles represented in the table. The plot is bounded at 0 and 1, and the density is not amoothed across edge of the scale so that the shape stays close to the underlying counts:
+
+```{r score-violin, fig.height=5, fig.width=10}
+merged_long %>% 
+  ggplot(aes(x = value, y = forcats::fct_rev(score), fill = score)) +
+  geom_violin(alpha = 0.45, adjust = 0.3, scale = "width", trim = TRUE, colour = "grey30") +
+  geom_boxplot(width = 0.08, alpha = 0.5, outlier.size = 1, outlier.alpha = 0.5, linewidth = 0.35, colour = "grey25", fill = "white") +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 2, fill = "white", colour = "grey20") +
+  scale_fill_manual(values = score_palette, guide = "none") +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), expand = expansion(mult = c(0.01, 0.01))) +
+  scale_y_discrete(expand = expansion(add = c(0.55, 0.75))) +
+  labs(
+    x = "Information content", y = NULL,
+    title = "Distribution of the information content",
+    subtitle = sprintf("%s bins with two or more member transcripts | box: median and IQR, diamond: mean",
+                       fmtInt(nrow(merged_bins)))
+  ) +
+  theme_endome(base_size = 12) +
+  theme(panel.grid.major.y = element_blank())
+```
+
+The figure below is the histogram version with the main difference that the y-axis represent the share of the bins of that variant, rather than raw counts. Thus, panels are comparable even though the variants are computed over the same bins.
+
+```{r, fig.height=5.5, fig.width=9.5}
+binwidth <- 0.01; panels <- levels(merged_long$score)
+
+hist_plot <- merged_long %>%
+  dplyr::filter(!is.na(value)) %>%
+  dplyr::mutate(bin = scoreBinCentre(value, binwidth)) %>%
+  dplyr::count(score, bin) %>%
+  dplyr::group_by(score) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(score %in% panels) %>%
+  dplyr::mutate(panel = factor(as.character(score), levels = panels))
+
+hist_plot %>% 
+  ggplot(aes(x = bin, y = prop, fill = panel)) +
+  geom_col(width = binwidth, colour = "black", linewidth = 0.25) +
+  facet_wrap(~ panel, ncol = 1) +
+  scale_fill_manual(values = score_palette, guide = "none") +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), expand = expansion(mult = c(0.005, 0.005))) +
+  scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.02))) +
+  labs(
+    x = "Information content", y = "Share of the bins",
+    title = "Distribution of the information content"
+  ) +
+  theme_endome(base_size = 11)
+```
+
+We can also represent the information scores as categories, better showcasing the distrubutions and how they compare
+
+```{r score-bands, fig.height=4.5, fig.width=9.5}
+band_tbl <- merged_long %>% 
+  dplyr::filter(!is.na(value)) %>%
+  dplyr::count(score, band = scoreBand(value)) %>%
+  dplyr::group_by(score) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup()
+
+band_tbl %>%
+  ggplot(aes(x = prop, y = forcats::fct_rev(score), fill = band)) +
+  geom_col(width = 0.6, colour = "grey25", linewidth = 0.25) +
+  geom_text(aes(label = ifelse(prop >= 0.04, fmtPct(prop, 0.1), "")), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = band_palette, drop = FALSE) +
+  scale_x_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0))) +
+  scale_y_discrete(expand = expansion(add = c(0.7, 0.7))) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  labs(
+    x = "Proportion of bins", y = NULL, fill = "Score band",
+    title = "Composition of the information content by score band",
+  ) +
+  theme_endome(legend_pos = "right", base_size = 11) +
+  theme(panel.grid.major.y = element_blank())
+```
+
+## Distributions by Bin Size
+
+Here, the two normalized scores can compare if members of a big bin size are more different from each other than the members of a small one, thanks to the normalization by bin size. The default *Rao* variant answers whether a big merge destroys more information than a small one. Comparing raw Rao values across size classes therefore measures bin size as much as it measures concordance.
+
+The table below reports the same distributional summary as above, but now split by the size class of the bin. Reading down a single score variant shows whether that variant degrades with bin size.
+
+```{r score-by-size-table}
+score_by_size_tbl <- merged_long %>%
+  summariseScores(score, size_class) %>%
+  dplyr::filter(n_bins > 0) %>%
+  dplyr::arrange(score, size_class) %>%
+  dplyr::mutate(pct_below_09 = fmtPct(pct_below_09, 0.1)) %>%
+  dplyr::select(score,
+    `Bin size` = size_class, `N. bins` = n_bins, Mean = mean,
+    `5%` = q05, `25%` = q25, Median = median, `75%` = q75,
+    `95%` = q95, `< 0.9` = pct_below_09) %>%
+  droplevels()
+
+score_by_size_tbl %>%
+  dplyr::select(-score) %>%
+  renderTable(style = "md",
+              caption = "Information content by bin size class, per score variant.", align = c("l", rep("r", 8))) %>% 
+  kableExtra::pack_rows(index = table(score_by_size_tbl$score), label_row_css = "background-color: #999; color: #fff;") %>%
+  kableExtra::column_spec(1, bold = TRUE)
+```
+
+The same information can be presented in the figure below, where the density of the score within one bin size class is represent as a ridge line plot. A ridge sitting close to 1 means that the merges of that size preserve everything the features can see. A ridge that spreads leftwards as the class grows means that concordance degrades with bin size. Bins are grouped one class per size, with everything larger pooled into `7+`: 
+
+```{r score-by-size-plot, fig.height=8, fig.width=9}
+scores_by_size_long <- merged_long %>%
+  dplyr::mutate(size_class = sizeClass(n_members, breaks = 1:6, drop = TRUE))
+
+yPos <- function(x) length(levels(x)) - as.integer(x) + 1
+scores_by_size_long_stats <- scores_by_size_long %>% 
+  dplyr::group_by(score, size_class) %>% 
+  dplyr::summarise(
+      n_bins = dplyr::n(),
+      median = stats::median(value),
+      perfect = mean(value >= 1),
+      .groups = "drop"
+    ) %>% 
+  dplyr::mutate(y = yPos(size_class))
+
+scores_by_size_long %>%
+  ggplot(aes(x = value, y = size_class, fill = score)) +
+  ggridges::geom_density_ridges2(bandwidth = 0.015, scale = 2.5, from = 0, to = 1,
+    show.legend = FALSE, quantile_lines = TRUE, quantiles = 0.5,
+    colour = "grey25", linewidth = 0.3, alpha = 0.9,
+    vline_colour = "grey20", vline_width = 0.5
+  ) +
+  geom_text(data = scores_by_size_long_stats, aes(x = 0.01, y = y, label = sprintf("%s bins   |   median %s   |   %s at exactly 1", fmtInt(n_bins), fmtNum(median, 3), fmtPct(perfect, 1))),
+            hjust = 0, vjust = -0.5, size = 2.7, colour = "grey35") +
+  facet_wrap(~ score, ncol = 1) +
+  scale_fill_manual(values = score_palette, guide = "none") +
+  scale_x_continuous(breaks = seq(0, 1, 0.25), expand = expansion(mult = c(0, 0))) +
+  scale_y_discrete(limits = rev, expand = expansion(mult = c(0.02, 0.5))) +
+  coord_cartesian(clip = "off") +
+  labs(
+    x = "Information content", y = "Bin size",
+    title = "Distribution of information score by bin size",
+    subtitle = sprintf("%s bins over %s binned transcripts | %s bp at the %s | merge distance %i bp",
+                       fmtInt(bin_info_df$n_bins), fmtInt(bin_info_df$n_members),
+                       wc$width, txEnd_label, merge_distance)
+  ) +
+  theme_endome(base_size = 11)
+```
+
+Collapsing each size to a single number makes the trend across sizes easier to follow, at the cost of hiding the shape of each distribution. Bins of more than 20 members are excluded, as there are too few of them for the mean to be stable. The ribbons are the 95% confidence intervals on the mean. They describe how precisely the mean of each size class is estimated, not the spread of individual bins.
+
+```{r score-mean-by-size, fig.height=5}
+score_mean_by_size <- merged_long %>%
+  dplyr::filter(n_members <= 20) %>%
+  dplyr::group_by(score, n_members) %>%
+  dplyr::summarise(
+    n_bins = dplyr::n(),
+    mean = mean(value, na.rm = TRUE),
+    se = stats::sd(value, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop"
+  )
+
+score_mean_by_size %>%
+  ggplot(aes(x = n_members, y = mean, color = score, fill = score)) +
+  geom_ribbon(aes(ymin = mean - 1.96*se, ymax = mean + 1.96*se), alpha = 0.2, color = "NA") +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.6) +
+  scale_colour_manual(values = score_palette) +
+  scale_fill_manual(values = score_palette, guide = "none") +
+  scale_x_continuous(breaks = seq(2, 20, 2), expand = c(0, 0.5, 0, 0.5)) +
+  # scale_y_continuous(limits = c(0, 1), expand = 0) +
+  labs(
+    x = "Bin size", y = "Mean information content", colour = NULL,
+    title = "Mean information content as a function of bin size",
+    subtitle = "Ribbons are 95% confidence intervals on the mean"
+  ) +
+  theme_endome(legend_pos = "top", base_size = 13)
+```
+
+## Effect of dropping the reference-state agreements
+
+The asymmetric variant differs from the default one in that a component where both members sit in the reference state is treated as non-comparable rather than as an agreement. The histogram below is the per-bin difference `info_score_asymmetric - info_score_norm`, which helps identify exactly how much of the default score depends on these kind of agreements. A bin at a negative value is one that looked more concordant than it is. Once the "both canonical, both non-NMD" agreements are removed, the weight they carried shifts onto the protein and CDS length components.
+
+```{r score-delta-asym, fig.height=5}
+asym_delta <- merged_bins %>%
+  dplyr::mutate(delta = info_score_asymmetric - info_score_norm) %>%
+  dplyr::summarise(
+    n_lower = sum(delta < -1e-9, na.rm = TRUE),
+    n_equal = sum(abs(delta) <= 1e-9, na.rm = TRUE),
+    n_higher = sum(delta > 1e-9, na.rm = TRUE),
+    n_higher_stop = sum(delta > 1e-9 & mean_d_stop_codon > 1e-9, na.rm = TRUE)
+  )
+
+merged_bins %>%
+  dplyr::mutate(delta = info_score_asymmetric - info_score_norm) %>%
+  ggplot(aes(x = delta)) +
+  geom_histogram(bins = 60, fill = "#d95f0e", color = "black") +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey40") +
+  scale_y_continuous(labels = scales::comma, expand = c(0, 0, 0.1, 0)) +
+  scale_x_continuous(expand = 0) +
+  labs(
+    x = "info_score_asymmetric - info_score_norm", y = "Number of bins",
+    title = "Effect of dropping the reference-state agreements"
+  ) +
+  theme_endome(base_size = 13)
+```
+
+A positive delta are scenarios in which the asymmetric rule sets `d_stop_codon` to `NA` whenever both members terminate canonically, but two canonical stops are not necessarily the same stop. For example, `TGA` against `TAA` score 0.5 under the symmetric treatment, and is discarded in the asymmetric one. Every one of those `r fmtInt(asym_delta$n_higher_stop)` bins carries a non-zero `mean_d_stop_codon`, with no start-codon or NMD disagreement at all.
+
+# Component contribution to Information Content {.spacer}
+
+The `bin_information` table stores the weighted mean dissimilarity of each component over the comparable pairs of that bin. Two separate questions follow from it: **what each component does to the score**, and **how often each component can be measured at all**. The first is a matter of disagreement and weight, the second of missing evidence.
+
+## Effect of each component
+
+It is important to distinguish between how dissimilar members are on a given component, and how much that component actually affects the final score. A component can be highly variable and still barely matter if its weight is small, and a heavily weighted component contributes nothing if its members always agree.
+
++ **Mean dissimilarity** (left): average of `mean_d_<components>` across every merged bin where the component is comparable. Each bin contributes its own weighted mean over its comparable pairs, and bins where the component is `NA` are dropped rather than counted as 0. If is unaffected by the configured weights.
++ **Weighted contribution** (right): the same mean multiplied by the component's weight. It is what the score actually responds to.
+
+```{r component-plot, fig.height = 5}
+component_long <- merged_bins %>%
+  dplyr::select(bin_id, n_members, size_class, dplyr::starts_with("mean_d_")) %>%
+  tidyr::pivot_longer(dplyr::starts_with("mean_d_"), names_to = "component", values_to = "mean_d") %>%
+  dplyr::mutate(
+    component = stringr::str_remove(component, "^mean_d_"),
+    weight = component_weights[component]
+  )
+component_summary <- component_long %>%
+  dplyr::group_by(component, weight) %>%
+  dplyr::summarise(
+    pct_comparable = mean(!is.na(mean_d)),
+    pct_bins_perfect = mean(mean_d <= 1e-9, na.rm = TRUE),
+    median_d = stats::median(mean_d, na.rm = TRUE),
+    mean_d = mean(mean_d, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    weighted_d = weight * mean_d,
+    contribution = weighted_d / sum(weighted_d, na.rm = TRUE)
+  ) %>%
+  dplyr::relocate(component, weight, pct_comparable, mean_d, median_d, pct_bins_perfect) %>%
+  dplyr::arrange(dplyr::desc(contribution))
+
+component_summary %>%
+  dplyr::select(component, weight, mean_d, weighted_d) %>%
+  tidyr::pivot_longer(c(mean_d, weighted_d), names_to = "quantity", values_to = "value") %>%
+  dplyr::mutate(quantity = dplyr::recode(quantity,
+    mean_d = "Mean dissimilarity", weighted_d = "Weighted contribution")) %>%
+  ggplot(aes(y = reorder(component, value), x = value, fill = weight)) +
+  scale_fill_viridis_c(begin = 0.25, end = 0.9, name = "Weight") +
+  geom_col(width = 0.65, color = "black") +
+  scale_x_continuous(expand = c(0, 0, 0.1, 0)) +
+  facet_wrap(~ quantity, scales = "free_x") +
+  guides(fill = guide_colorbar(
+    barheight = unit(45, "mm"), barwidth = unit(6, "mm"),
+    frame.colour = "black",
+    theme = theme(legend.ticks = element_line(linewidth = 0.6,color = "black"))
+  )) +
+  labs(
+    x = NULL, y = NULL,
+    title = "What drives the Information Score",
+    subtitle = "Left: how different members are on each feature | Right: after multiplying by the weight"
+  ) +
+  theme_endome(base_size = 13, legend_pos = "right") +
+  theme(
+    legend.title = element_text(margin = margin(b = 10)),
+    panel.spacing.x = unit(1, "lines")
+  )
+```
+
+Following these results, we can split the same means by bin size to observe where the degradation comes from as the number of transcripts merged grows. The aggregate above is dominated by the 2-member bins (bulk of the population), so a component that only misbehaves in large bins might be invisible. The shape of each line reflects the behavior of each component across number of transcripts in bin. A flat line means that the component is equally concordant whatever the size, while a positive slope represents a component which dissimilarity increases as the more transcripts are folded together. 
+
+```{r component-by-size, fig.height = 5}
+component_mean_by_size <- component_long %>%
+  dplyr::filter(!is.na(mean_d), !is.na(size_class)) %>%
+  dplyr::group_by(component, size_class) %>%
+  dplyr::summarise(
+    mean = mean(mean_d, na.rm = TRUE),
+    se = stats::sd(mean_d, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop")
+
+component_mean_by_size %>% 
+  ggplot(aes(x = size_class, y = mean, group = component, fill = component, color = component)) +
+  geom_ribbon(aes(ymin = mean - 1.96*se, ymax = mean + 1.96*se), alpha = 0.2, color = "NA") +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.8) +
+  scale_x_discrete(expand = c(0, 0.2, 0, 0.2)) +
+  scale_fill_viridis_d(option = "turbo", begin = 0.1, end = 0.9) +
+  scale_colour_viridis_d(option = "turbo", begin = 0.1, end = 0.9) +
+  labs(
+    x = "Bin size", y = "Mean dissimilarity", colour = "Component", fill = "Component",
+    title = "Component dissimilarity across bin sizes",
+  ) +
+  theme_endome(legend_pos = "right")
+```
+
+A component can end up contributing little to the score for two very different reasons:
+
++ **Rarely comparable**: if a component cannot be compared between two transcripts, it does not score 0, it drops out of the Gower distance and its weight is redistributed onto the remaining components. A component that is often missing therefore shows a small weighted contribution above without ever having been informative or uninformative.
+
++ **Comparable but invariant**: a component whose dissimilarity is close to 0 in almost every bin is measured spends weight on agreement that was never in question. This is the main motivation for the *asymmetric* variant of the information score, which is designed to correct components having a distribution very heavily skewed towards their baseline.
+
+```{r component-degenerate, echo = FALSE, results = "asis"}
+degenerate <- component_summary %>% dplyr::filter(pct_bins_perfect > 0.99)
+
+if (nrow(degenerate) > 0) {
+  cat(sprintf(
+    "In this ENDome, %s %s effectively invariant (identical in >99%% of the merged bins), so %s of the total weight is being spent on agreement that was never in question.\n",
+    paste(sprintf("`%s`", degenerate$component), collapse = ", "),
+    if (nrow(degenerate) == 1) "is" else "are",
+    fmtPct(sum(degenerate$weight) / sum(component_summary$weight))))
+} else {
+  cat("In this ENDome, every component varies across bins.\n")
+}
+```
+
+## Component comparability
+
+Having seen what each component does when it can be measured, the remaining question is how often that is the case. A pair of transcripts that cannot be scored on any single component is not a concordant pair, it is an **unknown** one, and it is recorded as `NA` rather than as agreement. 
+
+The table below counts those pairs directly. Within each size class, `N. Pairs` is the total number of within-bin pairs enumerated across every bin of the class, `N. Scored` how many of them received a Gower distance and `N. Unscored` the remainder. The last column reports the *mass deficit*. Recall that the normalized score divides Rao's $Q$ by the comparable pair mass $M$, and that $M = 1 - 1/n$ when every pair of an $n$-member bin could be scored. The deficit is the gap $\left(1 - 1/n\right) - M$ (i.e. the weight carried by the pairs that could not be scored at all). For `info_score` (Rao's default approach), only the numerator loses them, so an unscored pair contributes 0 to $Q$, which is indistinguishable from a perfectly concordant pair. The non-normalised score therefore reads "unknown" as "identical" and is inflated by exactly the deficit.
+
+```{r comparability}
+comparability_tbl <- merged_bins %>%
+  dplyr::mutate(
+    fully_scored = n_pairs_scored >= n_pairs,
+    mass_deficit = pmax(0, (1 - 1 / n_members) - pair_mass)
+  ) %>%
+  dplyr::group_by(size_class) %>%
+  dplyr::summarise(
+    n_bins = dplyr::n(),
+    n_pairs = sum(n_pairs),
+    n_scored = sum(n_pairs_scored),
+    n_unscored = sum(n_pairs) - sum(n_pairs_scored),
+    pct_pairs_scored = sum(n_pairs_scored) / sum(n_pairs),
+    pct_bins_fully_scored = mean(fully_scored),
+    max_mass_deficit = max(mass_deficit, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    dplyr::across(c(pct_pairs_scored, pct_bins_fully_scored), \(x) fmtPct(x, 0.1)),
+    max_mass_deficit = dplyr::if_else(max_mass_deficit < 1e-9, "0", fmtNum(max_mass_deficit, 4))
+  )
+
+comparability_tbl %>%
+  dplyr::rename(
+    `Size Class` = size_class, `N. Bins` = n_bins, `N. Pairs` = n_pairs,
+    `N. Scored` = n_scored, `N. Unscored` = n_unscored,
+    `% Pairs Scored` = pct_pairs_scored,
+    `% of Bins Fully Scored` = pct_bins_fully_scored,
+    `Max Mass Deficit` = max_mass_deficit
+  ) %>%
+  renderTable(style = "md",
+              caption = "Within-bin pairs that could be scored on at least one component, counted per size class.",
+              align = c("l", rep("r", 7)))
+```
+
+# Bin analysis {.spacer}
+
+In this section, we aim to showcase bins where collapsing members loses the most information. The first table ranks every merged bin by their normalized information score, and reports to top 100. Alongside the three score variants, it prints the per-component means, so the reason a given bin scores badly can be read off the row.
+
+```{r worst-bins, results="asis", echo=FALSE}
+bin_gene_names <- db$transcripts %>%
+  dplyr::filter(!is.na(bin_id)) %>%
+  dplyr::distinct(bin_id, gene_name) %>%
+  dplyr::collect() %>%
+  dplyr::group_by(bin_id) %>%
+  dplyr::summarise(gene_name = paste(unique(stats::na.omit(gene_name)), collapse = ", "),
+                   .groups = "drop")
+
+merged_bins %>%
+  dplyr::left_join(bin_gene_names, by = "bin_id") %>%
+  dplyr::arrange(info_score_norm) %>%
+  dplyr::select(bin_id, gene_name, n_members, n_superseded,
+                info_score_norm, info_score, info_score_asymmetric,
+                dplyr::starts_with("mean_d_")) %>%
+  renderTable(style = "html", limit = 100, pageLength = 10, digits = 2,
+              caption = "The 30 least concordant merged bins, ranked by the normalised score.")
+```
+
+Most likely, the ranking above is dominated by small bins with two unrelated transcripts. The following table represents the same information but for bins with at least four members, as these bins absorb many transcripts at once and a low score here removes more of the transcriptome from interpretation than any single small bin does.
+
+```{r worst-bins-large}
+merged_bins %>%
+  dplyr::left_join(bin_gene_names, by = "bin_id") %>%
+  dplyr::filter(n_members >= 4) %>%
+  dplyr::arrange(info_score_norm) %>%
+  dplyr::select(bin_id, gene_name, n_members, n_superseded,
+                info_score, info_score_norm, info_score_asymmetric, n_pairs, pair_mass) %>%
+  renderTable(style = "html", limit = 100, pageLength = 10, digits = 2,
+              caption = "The 20 most damaging merges among the larger bins (4+ members).")
+```
+
+## Specific genes {-}
+
+A gene whose bins are all clean supports an interpretable result, even if one of them merged several transcripts, while a gene whose bins are all mixtures does not. The table below aggregates to the gene, keeping genes that carry at least two merged bins (the ones where usage test has something to compare), and ranking them by the mean normalised score across thhose bins. Here, `min_score` is added because a gene can have a respectable mean and still contain one badly mixed bin, which is enough to make a shift involving that bin uninterpretable. These are the genes where a DTU call is less likely to have interpretable biological consequences.
+
+```{r worst-genes}
+merged_bins %>%
+  dplyr::filter(!is.na(gene_id)) %>%
+  dplyr::group_by(gene_id) %>%
+  dplyr::summarise(
+    n_merged_bins = dplyr::n(),
+    n_members = sum(n_members),
+    min_score = min(info_score_norm, na.rm = TRUE),
+    mean_score = mean(info_score_norm, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::filter(n_merged_bins >= 2) %>%
+  dplyr::arrange(mean_score) %>%
+  dplyr::left_join(
+    db$transcripts %>% dplyr::distinct(gene_id, gene_name) %>% dplyr::collect() %>%
+      dplyr::group_by(gene_id) %>% dplyr::slice_head(n = 1) %>% dplyr::ungroup(),
+    by = "gene_id") %>%
+  dplyr::relocate(gene_name, .after = gene_id) %>%
+  renderTable(style = "html", limit = 100, pageLength = 10, digits = 2,
+              caption = "Genes with at least two merged bins and the lowest mean information content")
+```
+
+# Future work {.spacer}
+
+The Bin Information Content is still work in development. Every component and their weights is still provisional. The score is best read as an ordering of bins, rather than as a calibrated quantity. Points below are the future modifications or things to consider when using this metric:
+
++ **Scoring weights are not stored in the database**: from the DuckDB alone, the component weights are not accessible. In the future, they should have their own table.
++ **Uniform member weights**: every member of a bin contributes $p_i = 1/n$ to Rao's quadratic entropy. Weighting members by expression is the natural fix and is what the $p_i$ in the formula is there for, but abundances do not exist at this point of the pipeline. Possible implementations at this point involves ideas such as the transcript support level, the SQANTI3 structural category (down-weighting novel or single-exon models against full splice matches), or  whether the transcript is in the reference annotation.
++ **Protein similarity is alignment-level, not domain-level**: the bit-score ratio says how much of a protein is shared, not exactly which part. Two isoform different by a functional domain can score high. Pfam/InterPro annotation is the next logical step.
++ **Weights are manually decided**: the current values are subject to change and are biased towards the specifics of each analysis. Any absolute threshold drawn on the score inherits that bias.
++ **Information contained in the ORF sequence itself are not accounted for**: stability measurements such as AREs or mRNA binding sites are not scored at this stage, and a bin can be perfectly concordant in their ORF characteristics but different in their regulatory contexts.
+
+# Appendix {.spacer -}
+
+```{r cleanup, include = FALSE}
+DBI::dbDisconnect(con, shutdown = TRUE)
+```
+
+## Session information {-}
+
+<details>
+<summary>Show/hide</summary>
+```{r reproducibility, echo = FALSE}
+# Session info
+library("sessioninfo")
+options(width = 120)
+session_info()
+```
+</details>
+
