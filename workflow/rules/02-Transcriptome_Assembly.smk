@@ -28,9 +28,20 @@ gffcompare_settings = resolve_preset(config, "gffcompare_settings", "gffcompare_
 ### Which tool's merged GTF feeds into gffcompare
 transcript_merge_method = config["transcript_merge_method"]
 
-### ORFannotate Download path
+### isomatch Download path
 isomatch_version = isomatch_settings["version"]
 isomatch_tar_url = f"https://github.com/zhengxinchang/isomatch/releases/download/{isomatch_version}/isomatch-{isomatch_version}-linux-x86_64.tar.gz"
+
+### isomatch reference-anchored merge: add `ref_annotation` as an extra merge input
+isomatch_use_reference = isomatch_settings.get("use_reference", False)
+
+### isomatch guide evidence (refTSS / polyA sites), downloaded from the repo's
+### `evidence/` folder at the release tag. Keyed by flag suffix ("tss", "tes").
+isomatch_guides = {
+    end: f"tools/isomatch-{isomatch_version}-evidence/{isomatch_settings[f'guide_{end}']}"
+    for end in ("tss", "tes") if isomatch_settings.get(f"guide_{end}")
+}
+isomatch_guide_flags = " ".join(f"--guide-{end} {path}" for end, path in isomatch_guides.items())
 
 ## Functions
 ################################################################################
@@ -47,7 +58,7 @@ def get_filter_input(wildcards):
     if wildcards.merge_method == "stringtie":
         return rules.gffcompare.output.gtf
     elif wildcards.merge_method == "isomatch":
-        return rules.isomatch_classify.output.annotated_gtf
+        return rules.isomatch_fix.output.gtf
     elif wildcards.merge_method == "ref":
         return ref_annotation
 
@@ -65,6 +76,19 @@ rule download_isomatch:
         mkdir -p {output.isomatch_dir}
         curl -L {params.url} | tar -xz -C {output.isomatch_dir}
         """
+
+rule download_isomatch_guide:
+    message: "--- Downloading isomatch guide evidence: {wildcards.guide_file} ---"
+    output:
+        bed = "tools/isomatch-{version}-evidence/{guide_file}"
+    params:
+        url = lambda wc: f"https://raw.githubusercontent.com/zhengxinchang/isomatch/{wc.version}/evidence/{wc.guide_file}"
+    wildcard_constraints:
+        version = "v[^/]+",
+        guide_file = "[^/]+\\.bed"
+    shell:
+        "curl -fsSL -o {output.bed} {params.url}"
+
 ### StringTie Rules
 rule stringtie_assembly:
     message: """--- StringTie Assembly - {wildcards.sample} ----"""
@@ -180,23 +204,31 @@ rule isomatch_merge:
     message: """--- Merging with isomatch ----"""
     input:
         gtf = lambda wc: expand(step02.path("isomatch_index/{sample}.gtf"), sample = generate_input_samples_df(wc.dataset, wc.group)["sample_id"].tolist(), dataset = wc.dataset, group = wc.group),
+        # Reference annotation as one more merge input (last, so the samples keep ids S1..Sn)
+        ref_gtf = rules.isomatch_index_reference.output.gtf if isomatch_use_reference else [],
+        guide_tss = isomatch_guides.get("tss", []),
+        guide_tes = isomatch_guides.get("tes", []),
         executable = rules.download_isomatch.output.executable,
         ref_genome = ref_genome
     output:
         gtf = step02.path("isomatch_merge/{dataset}.{group}.merged.gtf.gz"),
-        info = step02.path("isomatch_merge/{dataset}.{group}.merged_info.json")
+        info = step02.path("isomatch_merge/{dataset}.{group}.merged_info.json"),
+        track = step02.path("isomatch_merge/{dataset}.{group}.track.tsv.gz"),
+        present_absent = step02.path("isomatch_merge/{dataset}.{group}.present_absent.tsv.gz")
     log: step02.log("isomatch_merge/{dataset}.{group}.merged.log")
     benchmark: step02.benchmark("isomatch_merge/{dataset}.{group}.merged.tsv")
     params:
         out_prefix = str(step02.path("isomatch_merge/{dataset}.{group}")),
         index_dir = str(step02.path("isomatch_index")),
-        flags = isomatch_settings["merge_flags"]
+        ref_index_dir = str(step02.path("isomatch_ref_index")),
+        flags = isomatch_settings["merge_flags"],
+        guide_flags = isomatch_guide_flags
     threads: 1,
     shell:
         """
         set -euo pipefail
-        {input.executable} merge -d 3 -a 3 {params.flags} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} 2>&1 | tee {log}
-        rm -rf {params.index_dir}/.isomatch-index-*
+        {input.executable} merge -d 3 -a 3 {params.flags} {params.guide_flags} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} {input.ref_gtf} 2>&1 | tee {log}
+        rm -rf {params.index_dir}/.isomatch-index-* {params.ref_index_dir}/.isomatch-index-*
         """
 
 rule isomatch_chop:
@@ -222,6 +254,8 @@ rule isomatch_classify:
     input:
         gtf = rules.isomatch_chop.output.gtf,
         ref_gtf = rules.isomatch_index_reference.output.gtf,
+        guide_tss = isomatch_guides.get("tss", []),
+        guide_tes = isomatch_guides.get("tes", []),
         executable = rules.download_isomatch.output.executable,
         ref_genome = ref_genome
     output:
@@ -232,23 +266,28 @@ rule isomatch_classify:
     benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.tsv")
     params:
         out_prefix = str(step02.path("isomatch_classify/{dataset}.{group}")),
-        merge_dir = lambda wildcards, input: str(Path(input.gtf).parent)
+        merge_dir = lambda wildcards, input: str(Path(input.gtf).parent),
+        guide_flags = isomatch_guide_flags
     threads: 1,
     shell:
         """
         set -euo pipefail
-        {input.executable} classify --ref-gtf {input.ref_gtf} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} 2>&1 | tee {log}
+        {input.executable} classify {params.guide_flags} --ref-gtf {input.ref_gtf} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} 2>&1 | tee {log}
         rm -rf {params.merge_dir}/.isomatch-index-*
         """
 
 rule isomatch_fix:
     message: """--- Reconciling isomatch attributes with gffcompare schema ----"""
     input:
-        gtf = rules.isomatch_classify.output.annotated_gtf
+        gtf = rules.isomatch_classify.output.annotated_gtf,
+        present_absent = rules.isomatch_merge.output.present_absent
     output:
         gtf = step02.path("isomatch_classify/{dataset}.{group}.fixed.gtf")
     log: step02.log("isomatch_classify/{dataset}.{group}.fixed.log")
     benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.fixed.tsv")
+    params:
+        # Column of the reference annotation in the present/absent table ("" if not merged with it)
+        ref_source = Path(str(rules.isomatch_index_reference.output.gtf)).name if isomatch_use_reference else ""
     conda: "../envs/r.yaml"
     threads: 1
     script: "../scripts/02a-isomatch_fix.R"

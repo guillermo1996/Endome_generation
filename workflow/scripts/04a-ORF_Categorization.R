@@ -125,8 +125,37 @@ orf_summary <- readr::read_tsv(input_orf_summary)
 ############################################################################## #
 # ---- 2. Generate the Isoform information table ----
 
+## SUGGESTED CHANGE (isomatch merge, pending review) ---------------------------
+## With `transcript_merge_method: isomatch`, transcript_id is isomatch's own id
+## (ISOMT_*), so the GENCODE join below (by transcript_id) finds no match: every
+## transcript gets in_ref = FALSE and NA biotypes, and the `pc` filter in 04b
+## removes all of them. 02a-isomatch_fix.R stores the matched reference
+## transcript in the `ref_transcript_id` GTF attribute (NA for novel), which
+## survives pigeon and ORFannotate. Several ISOMT_* can share one reference id
+## (the reference isoform and its alternative-end versions). Suggested:
+##
+##   gtf_tx <- gtf_df %>% dplyr::filter(type == "transcript")
+##   if (!"ref_transcript_id" %in% colnames(gtf_tx)) gtf_tx$ref_transcript_id <- gtf_tx$transcript_id
+##
+##   isoform_summary <- gtf_tx %>%
+##     dplyr::select(transcript_id, ref_transcript_id, merge_gene_id = gene_id) %>%
+##     dplyr::left_join(orf_summary_filter, by = "transcript_id") %>%
+##     dplyr::left_join(annotation_gtf_filter, by = c("ref_transcript_id" = "transcript_id")) %>%
+##     ...  # protein and pigeon joins unchanged (by transcript_id)
+##
+## and keep `ref_transcript_id` in the isoform summary / relocate() call. For
+## StringTie it falls back to transcript_id, so the current behaviour is kept.
+## Alternative for any merge method: pigeon's `associated_transcript` column
+## (FSM and ISM matches) instead of the GTF attribute.
+##
+## Optional: the `isom_sample_cnt` / `isom_ref_source` attributes (transcript
+## features only) could be carried into the isoform summary to filter
+## reference-only transcripts without long-read support
+## (isom_sample_cnt == 0) in 04b.
+## -----------------------------------------------------------------------------
+
 ## Generate the information that will be appended to the isoform summary
-orf_summary_filter <- orf_summary %>% 
+orf_summary_filter <- orf_summary %>%
   dplyr::select(transcript_id, has_orf, 
     orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len,
     coding_class, total_junctions, NMD_sensitive)
@@ -155,6 +184,10 @@ isoform_summary <- gtf_df %>%
 isoform_summary <- isoform_summary %>% 
   dplyr::rename(orfannotate_type = coding_class, ref_transcript_type = transcript_type, ref_gene_type = gene_type) %>% 
   dplyr::mutate(
+    ## SUGGESTED CHANGE (isomatch, pending review): with the join by
+    ## ref_transcript_id above, in_ref means "matches a GENCODE transcript".
+    ## Decide whether ISM matches should count (pigeon structural_category) or
+    ## only full-splice matches, including alternative 5'/3' ends.
     in_ref = !is.na(gene_id),
     gene_id = ifelse(is.na(gene_id), merge_gene_id, gene_id),
     gene_name = ifelse(is.na(gene_id), gene_id, gene_name)

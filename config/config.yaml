@@ -36,9 +36,9 @@
 # Folder/file structure:
 #   {main_output_path}/
 #   └── {input_dataset}.{input_group}/       # one folder per dataset × group combination
-#       ├── 01-Alignment[_{hash}]/
+#       ├── 01-Alignment[-{hash}]/
 #       ├── ...
-#       └── 05-Truncation[_{hash}]/
+#       └── 05-Truncation[-{hash}]/
 #           ├── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_1}.w{trunc_width}.gtf   # trunc_site × trunc_width
 #           └── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_2}.w{trunc_width}.gtf   # expand into files, not folders
 
@@ -62,9 +62,11 @@ log_path: ".logs"
 benchmark_path: ".benchmarks"
 
 ## Output folder hashing
-### If True, each step's output folder gets a 4-character hash suffix derived
-### from the parameters used in that step. e.g. "01-Alignment_a3f9" instead of
-### "01-Alignment"
+### If True, each step's output folder gets a 5-character hash suffix derived
+### from the parameters used in that step and in every step before it, e.g.
+### "01-Alignment-a3f9c" instead of "01-Alignment". The hash is cumulative:
+### changing a parameter of one step also renames the folders of all later
+### steps. Preset names are ignored, so renaming a preset keeps the hash.
 ###
 ### Set to True for safe iterative experimentation, as changing any tool
 ### parameter will produce a new folder, leaving prior results intact. Set to
@@ -186,16 +188,34 @@ minimap2_settings:
 #   "unguided" = run without reference GTF
 #   "guided"   = run with reference GTF (-G flag)
 stringtie_preset:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
-isomatch_preset: default
+isomatch_preset: default # default | ref_guided
 gffcompare_preset: default
 
 # Which tool's merged GTF is carried forward into gffcompare
 transcript_merge_method: ["stringtie"] # stringtie | isomatch
 
+### isomatch preset keys:
+###   version        isomatch release, downloaded into tools/isomatch-{version}/
+###   merge_flags    extra flags for `isomatch merge` (e.g. "-t both -s 50 -e 50")
+###   use_reference  [optional, default False] add `ref_annotation` as one more
+###                  input to `isomatch merge`. Reference transcripts are kept,
+###                  and long-read transcripts whose ends differ from the
+###                  reference (beyond --tss-wob/--tes-wob) are kept as separate
+###                  alternative-end isoforms
+###   guide_tss      [optional, default null] TSS evidence BED from the isomatch
+###                  repo `evidence/` folder (refTSS), used by merge and classify
+###   guide_tes      [optional, default null] TES evidence BED (polyA sites)
+### The guide files are downloaded from the isomatch repo at the `version` tag.
 isomatch_settings:
   default:
     version: "v0.6.0"
     merge_flags: ""
+  ref_guided: # Reference-anchored merge with refTSS/polyA-site evidence for the ends
+    version: "v0.6.0"
+    merge_flags: ""
+    use_reference: True
+    guide_tss: "human.grch38.tss.bed"
+    guide_tes: "human.grch38.tes.bed"
 
 stringtie_settings:
   unguided_guided:
