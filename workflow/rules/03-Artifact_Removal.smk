@@ -11,7 +11,7 @@ _start_time = time.perf_counter()
 step03 = register_step(
     name="03-Artifact_Removal",
     params={
-        "pigeon_presets": build_tool_settings(config, "pigeon_settings", "pigeon_preset"),
+        "pigeon_settings": build_tool_settings(config, "pigeon_settings", "pigeon_preset"),
     },
 )
 
@@ -42,13 +42,18 @@ def pigeon_prepare_input(wildcards):
 
 ## Rules
 ################################################################################
-ref_annotation_sorted = add_suffix_to_filename(ref_annotation, ".sorted")
 rule pigeon_prepare_reference:
     message: """--- Pigeon Prepare Reference ---"""
     input: ref_annotation
-    output: ref_annotation_sorted
+    output: 
+        link_gtf = step03.path("Prepare_ref/ref.pigeon.gtf"),
+        sorted_gtf = step03.path("Prepare_ref/ref.pigeon.sorted.gtf")
     conda: "../envs/pigeon.yaml"
-    shell: "pigeon prepare {input}"
+    shell:
+        """
+        ln -s $(readlink -f {input}) {output.link_gtf}
+        pigeon prepare {output.link_gtf} 2>&1 | tee {log}
+        """
 
 rule pigeon_prepare:
     message: """--- Pigeon Prepare ---"""
@@ -57,7 +62,7 @@ rule pigeon_prepare:
         genome = ref_genome
     output:
         sorted_gtf = step03.path("Prepare/{prefix}.pigeon.sorted.gtf")
-    log: step03.log("Pigeon_prepare/{prefix}.log")
+    log: step03.logs("Pigeon_prepare/{prefix}.log")
     benchmark: step03.benchmark("Pigeon_prepare/{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.annotation, ".sorted")
@@ -71,11 +76,11 @@ rule pigeon_classify:
     message: """--- Pigeon Classify ---"""
     input:
         sorted_gtf = step03.path("Prepare/{prefix}.pigeon.sorted.gtf"),
-        sorted_annotation = ref_annotation_sorted,
+        sorted_annotation = rules.pigeon_prepare_reference.output.sorted_gtf,
         genome = ref_genome
     output:
         classification_txt = step03.path("Classify_Filter/{prefix}.pigeon_classification.txt")
-    log: step03.log("Pigeon/classify_{prefix}.log")
+    log: step03.logs("Pigeon/classify_{prefix}.log")
     benchmark: step03.benchmark("Pigeon/classify_{prefix}.pigeon.tsv")
     params:
         pigeon_output = lambda w, output: Path(output.classification_txt).parent
@@ -93,7 +98,7 @@ rule pigeon_filter:
     output:
         filtered_gtf = step03.path("Classify_Filter/{prefix}.pigeon.sorted.filtered.gtf"),
         pigeon_summary = step03.path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
-    log: step03.log("Pigeon/filter_{prefix}.log")
+    log: step03.logs("Pigeon/filter_{prefix}.log")
     benchmark: step03.benchmark("Pigeon/filter_{prefix}.tsv")
     params:
         pigeon_output = lambda w, input: add_suffix_to_filename(input.sorted_annotation, ".filtered_lite")

@@ -1,8 +1,6 @@
 ---
-title: |
-  | ENDome Bin Characterization
-subtitle: |
-  | Bin Information Content
+title: ENDome Bin Characterization
+subtitle: Bin Information Content
 author:
 - name: "Guillermo Rocamora Pérez"
   affiliation: UCL / Cambridge - Version 2.0
@@ -171,14 +169,22 @@ if (!exists("snakemake")) {
       threads = 'numeric',
       scriptdir = 'character')
   )
+  ## dataset.group.merge_method folder created by the `test_data` rule (its
+  ## name is the prefix wildcard), and the orf_filter preset and truncation
+  ## (width, txEnd) to test. Absolute paths, as knitr runs from the Rmd folder.
+  ## The DuckDB is opened read-only, so the linked database is used directly.
+  repo_dir <- "~/RytenLab-Research/40-ENDome_generation"
+  test_dir <- file.path(repo_dir, "data/test_data/Ebbert.control.iso_ref")
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_run <- paste0(test_orf_filter, ".w", test_width, ".", test_txEnd)
   snakemake <- Snakemake(
     input = list(
-      duckdb = file.path("~/RytenLab-Research/40-ENDome_generation", 
-                         "debug_results/Wood.control/05-Truncation-03688/DuckDB",
-                         "Wood.control.stringtie.pc.w500.3p.duckdb")
+      duckdb = file.path(test_dir, paste0("test.", test_run, ".duckdb"))
     ),
     output = list(
-      html = "Results/01-Bin_information/Wood.control.stringtie.pc.w500.3p.html"
+      html = file.path(test_dir, paste0("interactive.", test_run, ".html"))
     ),
     params = list(
       merge_distance = 200,
@@ -194,13 +200,13 @@ if (!exists("snakemake")) {
         nmd = 0.4)
     ),
     wildcards = list(
-      prefix = "Wood.control.stringtie",
-      orf_filter = "pc",
-      width = "500",
-      txEnd = "3p"
+      prefix = basename(test_dir),
+      orf_filter = test_orf_filter,
+      width = test_width,
+      txEnd = test_txEnd
     ),
     threads = 4,
-    scriptdir = "~/RytenLab-Research/40-ENDome_generation/workflow/scripts"
+    scriptdir = file.path(repo_dir, "workflow/scripts")
   )
 }
 ```
@@ -511,6 +517,10 @@ The surrogate keys (`aa_id`, `cds_id`, `utr5_id`, `utr3_id`) are **content hashe
 
 ## Changelog {.tabset -}
 
+### v2.1 {-}
+
++ Definition of the reference isoform flag (`ref_isoform`, pigeon full-splice match) in the Methods, and the distribution of the transcripts by reference isoform status in the Run information.
+
 ### v2.0 {-}
 
 + Full rewrite of the score around MMseqs2, as protein similarity is no longer the mean pairwise percentage identitity of the members.
@@ -542,6 +552,8 @@ Bin information content is the last stage of the ENDome pipeline before differen
 | 05c | `endome_build_db` | `05c` (R) | The ENDome DuckDB |
 | 05d | `endome_compute_scores` | `05d` (R) | Pairwise distances, Gower, Rao, `bin_information` |
 | 05 | `endome_report` | this document | Characterization |
+
+Every transcript carries the pigeon (SQANTI3 lineage) `structural_category` and `subcategory` of the isoform summary, and a **reference isoform** flag (`ref_isoform`) derived from them: a transcript is a reference isoform when pigeon classifies it as a *full-splice match* (FSM), i.e. its intron chain is identical to that of a reference (GENCODE) transcript. Its ends may differ, so FSM transcripts with an alternative 5' or 3' end are reference isoforms too, and `subcategory` tells them apart (`reference_match`, `alternative_5end`, `alternative_3end`, `alternative_3end5end`, `mono-exon`). The flag does not depend on the transcript id: a transcript assembled by the merge (e.g. `ISOMT_*`) can be a reference isoform, and a reference id whose structure no longer matches its reference is not one. Every other category is not a reference isoform, whether it is a fragment of a reference transcript (ISM), a new combination of known (NIC) or new (NNC) splice sites, or a transcript outside the annotated splicing (antisense, fusion, genic, intergenic).
 
 The scoring itself can be summarized in the following steps:
 
@@ -848,7 +860,44 @@ accounting_tbl %>%
   kableExtra::column_spec(4, width = "56%", color = "#555")
 ```
 
-Note that `txendcutr` drops a transcript before binning when its truncated exon structure is identical to another transcript's of the same gene: after truncating to `r wc$width` bp at the `r txEnd_label`, the two are literally the same sequence and no assay could tell them apart. They are kept in the database so they remain traceable, are attached to the bin of the transcript that superseded them, and are counted in `n_members`. This is the conservative choice, as `n_members` then reports how many annotated transcripts the bin speaks for, rather than how many distinct truncated sequences went into it. 
+Note that `txendcutr` drops a transcript before binning when its truncated exon structure is identical to another transcript's of the same gene: after truncating to `r wc$width` bp at the `r txEnd_label`, the two are literally the same sequence and no assay could tell them apart. They are kept in the database so they remain traceable, are attached to the bin of the transcript that superseded them, and are counted in `n_members`. This is the conservative choice, as `n_members` then reports how many annotated transcripts the bin speaks for, rather than how many distinct truncated sequences went into it.
+
+## Reference isoforms {-}
+
+The transcripts of this ENDome are split below by the reference isoform flag (see [Methods](#methods)): reference isoforms by their pigeon `subcategory` (reference ends or alternative ends), every other transcript by its pigeon `structural_category`.
+
+```{r ref-isoform-table}
+ref_isoform_tbl <- db$transcripts %>%
+  dplyr::count(ref_isoform, structural_category, subcategory) %>%
+  dplyr::collect() %>%
+  dplyr::mutate(
+    group = dplyr::if_else(ref_isoform %in% TRUE, "Reference isoforms", "Other transcripts"),
+    Class = dplyr::if_else(ref_isoform %in% TRUE, subcategory, structural_category)
+  ) %>%
+  dplyr::group_by(group, Class) %>%
+  dplyr::summarise(N = sum(n), .groups = "drop") %>%
+  dplyr::mutate(
+    `%` = paste0(fmtNum(100 * N / sum(N), 1), "%"),
+    group = factor(group, levels = c("Reference isoforms", "Other transcripts"))
+  ) %>%
+  dplyr::arrange(group, dplyr::desc(N))
+
+n_ref_rows <- sum(ref_isoform_tbl$group == "Reference isoforms")
+
+ref_isoform_kbl <- ref_isoform_tbl %>%
+  dplyr::select(Class, N, `%`) %>%
+  renderTable(style = "md", align = c("l", "r", "r"),
+              caption = "Transcripts of this ENDome by reference isoform status: pigeon subcategory for reference isoforms, pigeon structural category otherwise. Percentages are over every transcript.")
+if (n_ref_rows > 0) {
+  ref_isoform_kbl <- ref_isoform_kbl %>%
+    kableExtra::pack_rows("Reference isoforms (ref_isoform)", 1, n_ref_rows, label_row_css = "background-color: #CCC; color: #fff;")
+}
+if (n_ref_rows < nrow(ref_isoform_tbl)) {
+  ref_isoform_kbl <- ref_isoform_kbl %>%
+    kableExtra::pack_rows("Other transcripts", n_ref_rows + 1, nrow(ref_isoform_tbl), label_row_css = "background-color: #CCC; color: #fff;")
+}
+ref_isoform_kbl
+```
 
 # Bin Size Distribution {.spacer}
 

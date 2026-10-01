@@ -15,7 +15,7 @@
 ## - Notes:
 ##   + Keeps only transcripts matching, per `params`: valid_ref_gene_type,
 ##   valid_ref_tx_type (reference gene/transcript biotypes),
-##   valid_orfannotate_type (ORFannotate coding_class) and in_ref_filter.
+##   valid_orfannotate_type (ORFannotate coding_class) and ref_isoform_filter.
 ##   + If the input GTF has no "ref_gene_type" column (i.e. it's the raw
 ##   reference annotation, not 04a's output), gene_type/transcript_type are
 ##   copied into ref_gene_type/ref_tx_type and the ORFannotate-specific
@@ -41,19 +41,24 @@ if (interactive()) {
       params = 'list'
     )
   )
+
+  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+  test_orf_filter <- "ref_pc"
+
   snakemake <- Snakemake(
     input = list(
-      gtf = "data/test_data/test.orf_annotated.gtf"
+      gtf = file.path(test_dir, "test.orf_annotated.gtf")
     ),
     output = list(
-      gtf_filter = "data/test_data/test.orf_filter.gtf"
+      gtf_filter = file.path(test_dir, paste0("interactive.", test_orf_filter, ".orf_filter.gtf"))
     ),
     params = list(
-      main_config = "pc",
-      valid_ref_gene_type = c("all"),
-      valid_ref_tx_type = c("all"),
+      main_config = test_orf_filter,
+      valid_ref_gene_type = c("protein_coding"),
+      valid_ref_tx_type = c("protein_coding"),
       valid_orfannotate_type = c("coding"),
-      in_ref_filter = ""
+      valid_structural_category = c("all"),
+      ref_isoform_filter = "TRUE"
     )
   )
 }
@@ -104,41 +109,46 @@ main_config <- snakemake@params$main_config
 valid_ref_gene_type <- snakemake@params$valid_ref_gene_type
 valid_ref_tx_type <- snakemake@params$valid_ref_tx_type
 valid_orfannotate_type <- snakemake@params$valid_orfannotate_type
-in_ref_filter <- as.logical(snakemake@params$in_ref_filter)
+valid_structural_category <- snakemake@params$valid_structural_category
+ref_isoform_filter <- as.logical(snakemake@params$ref_isoform_filter)
 
 #----------------------------------------------------------------------------- #
-## 2.2 Apply the filters o extract the valid transcripts ----
+## 2.2 Apply the filters and extract the valid transcripts ----
 
 ### GR: If "ref_gene_type" is not found, we are dealing with the reference
 ### annotation. Modify their columns so that the same logic can be applied on
 ### later steps
 if(!"ref_gene_type" %in% colnames(mcols(gtf))){
-  if(valid_orfannotate_type == "coding"){
+  if("coding" %in% valid_orfannotate_type){
     valid_ref_gene_type = c("protein_coding")
     valid_ref_tx_type = c("protein_coding")
   }
   
   mcols(gtf)["ref_gene_type"] <- mcols(gtf)["gene_type"]
   mcols(gtf)["ref_tx_type"] <- mcols(gtf)["transcript_type"]
-  valid_orfannotate_type <- ""
+  mcols(gtf)["ref_isoform"] <- "TRUE"
+  valid_orfannotate_type <- "all"
   mcols(gtf)["orfannotate_type"] <- ""
-  mcols(gtf)["in_ref"] <- ""
+  valid_structural_category <- "all"
+  mcols(gtf)["structural_category"] <- ""
 }
 
-### GR: Note that for each of the `_type` filters, the value "all" can be
-### provided to ignore any filtering. The filter `in_ref` removes every entry
-### with NA in the `ref_gene_type` and `ref_tx_type` columns
+### GR: Note that for each of the list filters, the value "all" can be
+### provided to ignore any filtering, and ref_isoform_filter = "" (NA) ignores
+### the ref_isoform filter. ref_isoform is written as "TRUE"/"FALSE" in the GTF.
 valid_transcripts <- gtf %>%
   dplyr::filter(type == "transcript") %>% 
   dplyr::filter(
     (all(valid_ref_gene_type == "all") | ref_gene_type %in% valid_ref_gene_type),
     (all(valid_ref_tx_type == "all") | ref_tx_type %in% valid_ref_tx_type),
     (all(valid_orfannotate_type == "all") | orfannotate_type %in% valid_orfannotate_type),
-    (is.na(in_ref_filter) | in_ref == in_ref_filter)
+    (all(valid_structural_category == "all") | structural_category %in% valid_structural_category),
+    (is.na(ref_isoform_filter) | as.logical(ref_isoform) %in% ref_isoform_filter)
   ) %>% 
   dplyr::pull(transcript_id)
 
 if(identical(valid_transcripts, character(0))) stop("No transcripts pass the requirements.")
+message(sprintf("Preset %s: %d transcripts kept", main_config, length(valid_transcripts)))
 
 ############################################################################## #
 # ---- 3. Filter the transcriptome ----
@@ -147,10 +157,6 @@ if(identical(valid_transcripts, character(0))) stop("No transcripts pass the req
 ## future modules.
 gtf <- gtf %>% dplyr::filter(type != "gene", transcript_id %in% valid_transcripts)
 
-# isoform_summary <- isoform_summary %>% dplyr::filter(transcript_id %in% valid_transcripts)
-
 ############################################################################## #
 # ---- 4. Output the GTF ----
 gtf %>% rtracklayer::export(output_gtf_path)
-
-# isoform_summary %>% readr::write_tsv(output_tsv_path)

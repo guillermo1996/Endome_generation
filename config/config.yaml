@@ -53,7 +53,9 @@ ref_annotation: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotat
 ## 3'/5' truncation parameters
 trunc_site:  ["3p", "5p"] # Truncation site: "3p" or "5p"
 trunc_width: [500, 300] # Window size (bp) around truncation site
-input_dataset: ["Wood"] # Dataset to employ to generate the ENDome
+input_dataset: ["Ebbert"] # Dataset to employ to generate the ENDome
+merge_preset: ["st_ref", "iso_ref", "iso_ref_lean"]
+orf_filter_preset: ["ref_pc", "pc_novel"]
 
 
 ## Output directories
@@ -184,15 +186,71 @@ minimap2_settings:
 ############################
 # 02. TRANSCRIPTOME ASSEMBLY
 ############################
-# Profile naming convention: <assembly_mode>_<merge_mode>
-#   "unguided" = run without reference GTF
-#   "guided"   = run with reference GTF (-G flag)
-stringtie_preset:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
-isomatch_preset: default # default | ref_guided
+stringtie_assembly_preset: unguided
 gffcompare_preset: default
 
-# Which tool's merged GTF is carried forward into gffcompare
-transcript_merge_method: ["stringtie"] # stringtie | isomatch
+isomatch_version: "v0.6.0"
+
+stringtie_assembly_settings:
+  unguided:
+    assembly_guided: False
+    assembly_flags: "-L --rf"
+  guided:
+    assembly_guided: True
+    assembly_flags: "-L --rf"
+
+merge_settings:
+  st_ref:
+    use_reference: True
+    merge_flags: "-L"
+  st:
+    use_reference: False
+    merge_flags: "-L"
+  iso_ref:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+    min_sample_cnt: 0
+  iso_ref_lean:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 0.0
+    min_tpm: 0.0
+    min_sample_cnt: 0
+  iso:
+    use_reference: False
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+  iso_ref_long:
+    use_reference: True
+    merge_flags: "--tss-policy longer --tes-policy longer"
+    min_fpkm: 1.0
+    min_tpm: 1.0
+  iso_ref_bed:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+    use_bed_files: True
+
+gffcompare_settings:
+  default:
+    gffcompare_flags: "-T"
+  strict: # Tighter exon/intron boundary tolerances
+    gffcompare_flags: "--strict-match -e 50 -d 50 -T"
+
+
+# # Profile naming convention: <assembly_mode>_<merge_mode>
+# #   "unguided" = run without reference GTF
+# #   "guided"   = run with reference GTF (-G flag)
+# stringtie_preset:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
+# isomatch_preset: ref_guided # default | ref_guided
+# gffcompare_preset: default
+
+# # Which tool's merged GTF is carried forward into gffcompare
+# transcript_merge_method: ["stringtie"] # stringtie | isomatch
 
 ### isomatch preset keys:
 ###   version        isomatch release, downloaded into tools/isomatch-{version}/
@@ -206,44 +264,62 @@ transcript_merge_method: ["stringtie"] # stringtie | isomatch
 ###                  repo `evidence/` folder (refTSS), used by merge and classify
 ###   guide_tes      [optional, default null] TES evidence BED (polyA sites)
 ### The guide files are downloaded from the isomatch repo at the `version` tag.
-isomatch_settings:
-  default:
-    version: "v0.6.0"
-    merge_flags: ""
-  ref_guided: # Reference-anchored merge with refTSS/polyA-site evidence for the ends
-    version: "v0.6.0"
-    merge_flags: ""
-    use_reference: True
-    guide_tss: "human.grch38.tss.bed"
-    guide_tes: "human.grch38.tes.bed"
+# isomatch_settings:
+#   guided:
+#     version: "v0.6.0"
+#     merge_flags: ""
+#     use_reference: True
+#   unguided:
+#     version: "v0.6.0"
+#     merge_flags: ""
+#     use_reference: False
+#   match_stringtie:
+#     version: "v0.6.0"
+#     merge_flags: ""
+#     use_reference: True
+#     tss-policy: longer
+#     tes-policy: longer
 
-stringtie_settings:
-  unguided_guided:
-    assembly_guided: False
-    assembly_flags:  "-L --rf"
-    merge_guided:    True 
-    merge_flags:     "-L"
-  unguided_unguided:
-    assembly_guided: False
-    assembly_flags:  "-L --rf"
-    merge_guided:    False
-    merge_flags:     "-L"
-  guided_guided:
-    assembly_guided: True
-    assembly_flags:  "-L --rf"
-    merge_guided:    True
-    merge_flags:     "-L"
-  guided_unguided:
-    assembly_guided: True
-    assembly_flags:  "-L --rf"
-    merge_guided:    False
-    merge_flags:     "-L"
+#   default:
+#     version: "v0.6.0"
+#     merge_flags: ""
+#     use_reference: False
+#     guide_tss: "human.grch38.tss.bed"
+#     guide_tes: "human.grch38.tes.bed"
+#   ref_guided: # Reference-anchored merge with refTSS/polyA-site evidence for the ends
+#     version: "v0.6.0"
+#     merge_flags: ""
+#     use_reference: True
+#     guide_tss: "human.grch38.tss.bed"
+#     guide_tes: "human.grch38.tes.bed"
 
-gffcompare_settings:
-  default:
-    gffcompare_flags: "-T"
-  strict: # Tighter exon/intron boundary tolerances
-    gffcompare_flags: "--strict-match -e 50 -d 50 -T"
+# stringtie_settings:
+#   unguided_guided:
+#     assembly_guided: False
+#     assembly_flags:  "-L --rf"
+#     merge_guided:    True 
+#     merge_flags:     "-L"
+#   unguided_unguided:
+#     assembly_guided: False
+#     assembly_flags:  "-L --rf"
+#     merge_guided:    False
+#     merge_flags:     "-L"
+#   guided_guided:
+#     assembly_guided: True
+#     assembly_flags:  "-L --rf"
+#     merge_guided:    True
+#     merge_flags:     "-L"
+#   guided_unguided:
+#     assembly_guided: True
+#     assembly_flags:  "-L --rf"
+#     merge_guided:    False
+#     merge_flags:     "-L"
+
+# gffcompare_settings:
+#   default:
+#     gffcompare_flags: "-T"
+#   strict: # Tighter exon/intron boundary tolerances
+#     gffcompare_flags: "--strict-match -e 50 -d 50 -T"
 
 ############################
 # 03. ARTIFACT REMOVAL
@@ -257,7 +333,6 @@ pigeon_settings:
 # 04. ORF IDENTIFICATION
 ############################
 orfannotate_preset: default
-orf_filter_preset: pc
 
 orfannotate_settings:
   default:
@@ -265,22 +340,57 @@ orfannotate_settings:
     gffread_clean: False
 
 ### ORF filter settings control which gene/transcript/ORF types are retained
+
+### ORF filter presets: which transcripts 04b keeps. Every list key takes ["all"]
+### to disable it. ref_isoform and structural_category come from pigeon (via 04a).
+###   valid_ref_gene_type        biotype of the reference gene (NA without a reference gene)
+###   valid_ref_tx_type          biotype of the reference transcript (FSM only, NA otherwise)
+###   valid_orfannotate_type     ORFannotate coding class ("coding" / "noncoding")
+###   valid_structural_category  pigeon structural category
+###   ref_isoform_filter         "TRUE"/"FALSE" keeps only (non-)reference isoforms
+###                              (pigeon FSM, alternative ends included); "" = no filter
 orf_filter_settings:
-  all:                         # No filtering. Keep all ORF classes and biotypes
-    valid_ref_gene_type:       ["all"]
-    valid_ref_tx_type:         ["all"]
-    valid_orfannotate_type:    ["all"]
-    in_ref_filter:             ""
-  orfann_coding:               # Keep only ORFannotate-classified coding transcripts
-    valid_ref_gene_type:       ["all"]
-    valid_ref_tx_type:         ["all"]
-    valid_orfannotate_type:    ["coding"]
-    in_ref_filter:             ""
-  pc:                          # Strict: protein-coding biotype + coding ORF + in-reference
+  ref_pc:                      # Reference protein-coding isoforms (alternative 5'/3' ends included) with a coding ORF
     valid_ref_gene_type:       ["protein_coding"]
     valid_ref_tx_type:         ["protein_coding"]
     valid_orfannotate_type:    ["coding"]
-    in_ref_filter:             "TRUE"
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        "TRUE"
+  pc_novel:                     # Every coding transcript except fragments (ISM): new genes and isoforms kept
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["coding"]
+    valid_structural_category: ["full-splice_match", "novel_in_catalog", "novel_not_in_catalog", "antisense", "genic", "genic_intron", "intergenic", "fusion"]
+    ref_isoform_filter:        ""
+  pc_all:                      # Every transcript with a coding ORF, any category
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["coding"]
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        ""
+  all:                         # No filtering (debugging)
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["all"]
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        ""
+
+# orf_filter_settings:
+#   all:                         # No filtering. Keep all ORF classes and biotypes
+#     valid_ref_gene_type:       ["all"]
+#     valid_ref_tx_type:         ["all"]
+#     valid_orfannotate_type:    ["all"]
+#     in_ref_filter:             ""
+#   orfann_coding:               # Keep only ORFannotate-classified coding transcripts
+#     valid_ref_gene_type:       ["all"]
+#     valid_ref_tx_type:         ["all"]
+#     valid_orfannotate_type:    ["coding"]
+#     in_ref_filter:             ""
+#   pc:                          # Strict: protein-coding biotype + coding ORF + in-reference
+#     valid_ref_gene_type:       ["protein_coding"]
+#     valid_ref_tx_type:         ["protein_coding"]
+#     valid_orfannotate_type:    ["coding"]
+#     in_ref_filter:             "TRUE"
 
 ############################
 # 05. TRUNCATION

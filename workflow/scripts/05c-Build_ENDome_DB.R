@@ -11,7 +11,7 @@
 ##
 ## Date Created: 2026-08-19
 ##
-## Latest Version: v1.0 (2026-08-19)
+## Latest Version: v1.1 (2026-09-30)
 ##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
 ##
@@ -25,6 +25,8 @@
 ##    - Surrogate keys (aa_id, cds_id, utr5_id, utr3_id) are content hashes.
 ##
 ## Changelog:
+##    - v1.1 (2026-09-30): transcripts table follows 04a v1.2: in_ref replaced
+##      by ref_isoform; added gene_source, merge_gene_id and ref_transcript_id.
 ##    - v1.0 (2026-08-19): Initial version
 ##
 ## Contact: guillermorocamora@gmail.com
@@ -48,29 +50,38 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
+  ## dataset.group.merge_method folder created by the `test_data` rule (its
+  ## name is the prefix wildcard), and the orf_filter preset and truncation
+  ## (width, txEnd) to test. The output uses the "interactive" prefix so it
+  ## never overwrites the linked results.
+  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_txendcutr <- file.path(test_dir, paste0("test.", test_orf_filter, ".txendcutr.w", test_width, ".", test_txEnd))
   snakemake <- Snakemake(
     input = list(
-      gtf_filter = "data/test_data/Wood.control/test.pc.orf_filter.gtf",
-      isoform_summary = "data/test_data/Wood.control/test.isoform_summary.tsv",
-      protein_fa = "data/test_data/Wood.control/protein.fa",
-      utr5_fa = "data/test_data/Wood.control/utr5.fa",
-      utr3_fa = "data/test_data/Wood.control/utr3.fa",
-      merge_table = "data/test_data/Wood.control/test.pc.txendcutr.w500.3p.merge.tsv",
-      overlap_table = "data/test_data/Wood.control/test.pc.txendcutr.w500.3p.overlaps.tsv",
+      gtf_filter = file.path(test_dir, paste0("test.", test_orf_filter, ".orf_filter.gtf")),
+      isoform_summary = file.path(test_dir, "test.isoform_summary.tsv"),
+      protein_fa = file.path(test_dir, "protein.fa"),
+      utr5_fa = file.path(test_dir, "utr5.fa"),
+      utr3_fa = file.path(test_dir, "utr3.fa"),
+      merge_table = paste0(test_txendcutr, ".merge.tsv"),
+      overlap_table = paste0(test_txendcutr, ".overlaps.tsv"),
       ref_genome = "/home/MinaRyten/Guillermo/Resources/Genome/GRCh38.primary_assembly.genome.fa"
     ),
     output = list(
-      duckdb = "data/test_data/Wood.control/test.pc.w500.3p.duckdb"
+      duckdb = file.path(test_dir, paste0("interactive.", test_orf_filter, ".w", test_width, ".", test_txEnd, ".duckdb"))
     ),
     params = list(),
     wildcards = list(
-      prefix = "Wood.control.stringtie", 
-      orf_filter = "pc",
-      width = "500", 
-      txEnd = "3p"
+      prefix = basename(test_dir),
+      orf_filter = test_orf_filter,
+      width = test_width,
+      txEnd = test_txEnd
     ),
     threads = 4,
-    scriptdir = "/home/drihome/MRGuillermoPerez/RytenLab-Research/40-ENDome_generation/workflow/scripts"
+    scriptdir = "workflow/scripts"
   )
 }
 
@@ -303,13 +314,13 @@ message("Aggregating the transcript information...")
 transcript_tbl <- transcripts(txdb) %>% 
   tibble::as_tibble() %>% 
   dplyr::left_join(isoform_summary, by = c("tx_name" = "transcript_id")) %>% 
-  dplyr::select(
-    transcript_id = tx_name, gene_id, gene_name,
+    dplyr::select(
+    transcript_id = tx_name, gene_id, gene_name, gene_source, merge_gene_id,
     seqnames, start, end, strand,
-    structural_category, subcategory,
-    in_ref, coding_prob, ref_transcript_type, ref_gene_type,
+    structural_category, subcategory, ref_isoform, ref_transcript_id,
+    coding_prob, ref_transcript_type, ref_gene_type,
     has_orf, total_junctions, ref_exons, NMD_sensitive
-  ) %>% 
+  ) %>%
   dplyr::mutate(run_id = run_id, .before = 0) %>% 
   dplyr::left_join(transcript_cds_map, by = "transcript_id") %>% 
   dplyr::left_join(transcript_utr5_map, by = "transcript_id") %>% 

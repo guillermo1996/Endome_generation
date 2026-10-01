@@ -11,17 +11,14 @@ _start_time = time.perf_counter()
 step04 = register_step(
     name="04-ORF_Identification",
     params={
-        "orfannotate_presets": build_tool_settings(config, "orfannotate_settings", "orfannotate_preset"),
-        "orf_filter_presets": build_tool_settings(config, "orf_filter_settings"),
-    },
-    extra_params={
-        "orf_filter_preset": config["orf_filter_preset"]
+        "orfannotate_settings": build_tool_settings(config, "orfannotate_settings", "orfannotate_preset"),
+        "orf_filter_settings": build_tool_settings(config, "orf_filter_settings"),
     }
 )
 
 ### Resolved settings used directly in the rule bodies below
 orfannotate_settings = resolve_preset(config, "orfannotate_settings", "orfannotate_preset")
-orf_filter_settings = resolve_preset(config, "orf_filter_settings", "orf_filter_preset")
+orf_filter_settings = config["orf_filter_settings"] 
 
 ### ORFannotate Download path
 orfannotate_version = orfannotate_settings["version"]
@@ -57,7 +54,7 @@ rule gffread:
         gtf = step03.path("Classify_Filter/{prefix}.sorted.filtered.gtf")
     output:
         gtf = step04.path("gffread/{prefix}.gtf")
-    log: step04.log("ORF_Identification/gffread_{prefix}.log")
+    log: step04.logs("ORF_Identification/gffread_{prefix}.log")
     benchmark: step04.benchmark("ORFannotate/gffread_{prefix}.tsv")
     conda: "../envs/gffread.yaml"
     shell:
@@ -75,7 +72,7 @@ rule ORF_annotate:
         protein_fa = step04.path("ORFannotate/{prefix}/protein.fa"),
         utr3_fa = step04.path("ORFannotate/{prefix}/utr3.fa"),
         utr5_fa = step04.path("ORFannotate/{prefix}/utr5.fa")
-    log: step04.log("ORFannotate/{prefix}.log")
+    log: step04.logs("ORFannotate/{prefix}.log")
     benchmark: step04.benchmark("ORFannotate/{prefix}.tsv")
     params:
         out_dir = lambda w, output: Path(output.summary_tsv).parent
@@ -90,7 +87,7 @@ rule ORF_annotate:
 #         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated.gtf")
 #     output:
 #         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated_clean.gtf"),
-#     log: step04.log("ORF_Identification/gffread_clean_{prefix}.log")
+#     log: step04.logs("ORF_Identification/gffread_clean_{prefix}.log")
 #     benchmark: step04.benchmark("ORFannotate/gffread_clean_{prefix}.tsv")
 #     conda:  "../envs/gffread.yaml"
 #     shell:
@@ -107,19 +104,10 @@ rule ORF_categorization:
     output:
         gtf = step04.path("ORF_Category/{prefix}.orf_annotated.gtf"),
         isoform_summary = step04.path("ORF_Category/{prefix}.isoform_summary.tsv"),
-    log: step04.log("ORF_Category/{prefix}.orf_annotated.log")
+    log: step04.logs("ORF_Category/{prefix}.orf_annotated.log")
     benchmark: step04.benchmark("ORF_Category/{prefix}.orf_annotated.tsv")
     conda: "../envs/r.yaml"
     script: "../scripts/04a-ORF_Categorization.R"
-
-
-# def select_source_dataset(wildcards):
-#     parts = wildcards.prefix.split(".")
-
-#     if parts[0] == "gencode":
-#         return ref_annotation
-#     else:
-#         return rules.ORF_categorization.output.gtf
 
 rule ORF_filtration:
     message: """--- Transcript filtration ---"""
@@ -127,14 +115,15 @@ rule ORF_filtration:
         gtf = rules.ORF_categorization.output.gtf
     output:
         gtf_filter = step04.path("ORF_Filtration/{prefix}.{orf_filter}.orf_filter.gtf"),
-    log: step04.log("ORF_Category/{prefix}.{orf_filter}_orf.log")
+    log: step04.logs("ORF_Category/{prefix}.{orf_filter}_orf.log")
     benchmark: step04.benchmark("ORF_Category/{prefix}.{orf_filter}_orf.tsv")
     params:
         main_config = lambda wc: wc.orf_filter,
-        valid_ref_gene_type = orf_filter_settings["valid_ref_gene_type"],
-        valid_ref_tx_type = orf_filter_settings["valid_ref_tx_type"],
-        valid_orfannotate_type = orf_filter_settings["valid_orfannotate_type"],
-        in_ref_filter = orf_filter_settings["in_ref_filter"],
+        valid_ref_gene_type = lambda wc: orf_filter_settings[wc.orf_filter]["valid_ref_gene_type"],
+        valid_ref_tx_type = lambda wc: orf_filter_settings[wc.orf_filter]["valid_ref_tx_type"],
+        valid_orfannotate_type = lambda wc: orf_filter_settings[wc.orf_filter]["valid_orfannotate_type"],
+        valid_structural_category = lambda wc: orf_filter_settings[wc.orf_filter].get("valid_structural_category", ["all"]),
+        ref_isoform_filter = lambda wc: orf_filter_settings[wc.orf_filter].get("ref_isoform_filter", ""),
     conda: "../envs/r.yaml"
     script: "../scripts/04b-ORF_Filtration.R"
 

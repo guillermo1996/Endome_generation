@@ -17,15 +17,23 @@ if (interactive()) {
       threads='numeric'
     )
   )
+  ## dataset.group.merge_method folder created by the `test_data` rule, and the
+  ## orf_filter preset and truncation (width, txEnd) to test. Outputs use the
+  ## "interactive" prefix so they never overwrite the linked results.
+  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_out <- file.path(test_dir, paste0("interactive.", test_orf_filter, ".txendcutr.w", test_width, ".", test_txEnd))
   snakemake <- Snakemake(
-      input=list(gtf="data/test_data/test.pc.orf_filter.gtf"),
-      output=list(gtf="data/test_data/txendcutr_test.gtf",
-                  fa="data/test_data/txendcutr_test.fa",
-                  transcript_overlap="data/test_data/txendcutr_test.overlaps.tsv",
-                  merge_table="data/test_data/txendcutr_test.merge.tsv"),
+      input=list(gtf=file.path(test_dir, paste0("test.", test_orf_filter, ".orf_filter.gtf"))),
+      output=list(gtf=paste0(test_out, ".gtf"),
+                  fa=paste0(test_out, ".fa.gz"),
+                  transcript_overlap=paste0(test_out, ".overlaps.tsv"),
+                  merge_table=paste0(test_out, ".merge.tsv")),
       params=list(mergeDist="200", genome="hg38"),
-      wildcards=list(width="500", txEnd="3p"),
-      log = list("data/test_data/txendcutr_logs.log"),
+      wildcards=list(width=test_width, txEnd=test_txEnd),
+      log = list(paste0(test_out, ".log")),
       threads=8
   )
 }

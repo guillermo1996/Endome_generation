@@ -11,7 +11,7 @@ _start_time = time.perf_counter()
 step01 = register_step(
     name="01-Alignment",
     params={
-        "minimap2_presets": build_tool_settings(config, "minimap2_settings", "minimap2_preset"),
+        "minimap2_settings": build_tool_settings(config, "minimap2_settings", "minimap2_preset"),
     },
 )
 
@@ -43,7 +43,7 @@ rule minimap2_align:
     output: 
         # sam = temporary(step01.path("Minimap2/{sample}.sam")),
         sam = step01.path("Minimap2/{sample}.sam"),
-    log: step01.log("Minimap2/{sample}.log")
+    log: step01.logs("Minimap2/{sample}.log")
     benchmark: step01.benchmark("Minimap2/{sample}.tsv")
     params:
         k = minimap2_settings["minimap2_kmer"],
@@ -58,7 +58,7 @@ rule samtools_sort:
         sam = rules.minimap2_align.output.sam
     output: 
         bam = step01.path("Samtools_sort/{sample}_sorted.bam"),
-    log: step01.log("Samtools_sort/{sample}.log"),
+    log: step01.logs("Samtools_sort/{sample}.log"),
     benchmark: step01.benchmark("Samtools_sort/{sample}.tsv"),
     resources:
         mem_gb=10
@@ -75,7 +75,7 @@ rule samtools_subsample:
     output:
         bam = step01.path("Samtools_subsample/{sample}_sorted.bam"),
         bai = step01.path("Samtools_subsample/{sample}_sorted.bam.bai")
-    log: step01.log("Samtools_subsample/{sample}.log"),
+    log: step01.logs("Samtools_subsample/{sample}.log"),
     benchmark: step01.benchmark("Samtools_subsample/{sample}.tsv"),
     params:
         seed = config.get("subsample_seed", 0),

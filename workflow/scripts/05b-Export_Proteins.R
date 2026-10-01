@@ -44,21 +44,24 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
+  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+  test_orf_filter <- "ref_pc"
+
   snakemake <- Snakemake(
     input = list(
-      protein_fa = "data/test_data/Wood.control/protein.fa",
-      gtf_filter = "data/test_data/Wood.control/test.pc.orf_filter.gtf"
+      protein_fa = file.path(test_dir, "protein.fa"),
+      gtf_filter = file.path(test_dir, paste0("test.", test_orf_filter, ".orf_filter.gtf"))
     ),
     output = list(
-      faa = "data/test_data/Wood.control/MMeseqs2.pc/proteins.faa",
-      protein_map = "data/test_data/Wood.control/MMeseqs2.pc/proteins_map.tsv",
+      faa = file.path(test_dir, paste0("interactive.", test_orf_filter, ".proteins.faa")),
+      protein_map = file.path(test_dir, paste0("interactive.", test_orf_filter, ".protein_map.tsv"))
     ),
     wildcards = list(
-      prefix = "Wood.control", 
-      orf_filter = "pc"
+      prefix = basename(test_dir),
+      orf_filter = test_orf_filter
     ),
     threads = 1,
-    scriptdir = "/home/drihome/MRGuillermoPerez/RytenLab-Research/40-ENDome_generation/workflow/scripts"
+    scriptdir = "workflow/scripts"
   )
 }
 
@@ -127,7 +130,7 @@ proteins_df <- protein_fa_df %>%
   ) %>% 
   dplyr::filter(aa_len > 0) %>% 
   dplyr::mutate(aa_id = assignId(., "aa_seq", prefix = "aa")) %>% 
-  dplyr::relocate(aa_id, aa_len, transcript_id, gene_id, aa_seq, run_id)
+  dplyr::relocate(aa_id, aa_len, transcript_id, aa_seq, run_id)
 
 message(sprintf("  %s distinct protein sequences", format(dplyr::n_distinct(proteins_df$aa_id), big.mark = ",")))
 
@@ -148,9 +151,9 @@ if(!dir.exists(dirname(smk_outputs$faa))) dir.create(dirname(smk_outputs$faa), s
 Biostrings::writeXStringSet(seqs, smk_outputs$faa)
 
 #----------------------------------------------------------------------------- #
-## 3.2 Store aa_id -> gene_id ----
+## 3.2 Store aa_id -> transcript_id ----
 proteins_df %>% 
-  dplyr::distinct(run_id, aa_id, gene_id, transcript_id) %>% 
+  dplyr::distinct(run_id, aa_id, transcript_id) %>% 
   readr::write_tsv(smk_outputs$protein_map)
 
 message("Done.")

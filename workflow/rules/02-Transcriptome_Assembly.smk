@@ -11,37 +11,20 @@ _start_time = time.perf_counter()
 step02 = register_step(
     name="02-Transcriptome_Assembly",
     params={
-        "stringtie_presets": build_tool_settings(config, "stringtie_settings", "stringtie_preset"),
-        "isomatch_presets": build_tool_settings(config, "isomatch_settings", "isomatch_preset"),
-        "gffcompare_presets": build_tool_settings(config, "gffcompare_settings", "gffcompare_preset"),
-    },
-    extra_params={
-        "transcript_merge_method": config["transcript_merge_method"],
-    },
+        "stringtie_assembly_settings": build_tool_settings(config, "stringtie_assembly_settings", "stringtie_assembly_preset"),
+        "merge_settings": build_tool_settings(config, "merge_settings"),
+        "gffcompare_settings": build_tool_settings(config, "gffcompare_settings", "gffcompare_preset"),
+    }
 )
 
 ### Resolved settings used directly in the rule bodies below
-stringtie_settings = resolve_preset(config, "stringtie_settings", "stringtie_preset")
-isomatch_settings = resolve_preset(config, "isomatch_settings", "isomatch_preset")
+stringtie_assembly_settings = resolve_preset(config, "stringtie_assembly_settings", "stringtie_assembly_preset")
+merge_settings = config["merge_settings"]
 gffcompare_settings = resolve_preset(config, "gffcompare_settings", "gffcompare_preset")
 
-### Which tool's merged GTF feeds into gffcompare
-transcript_merge_method = config["transcript_merge_method"]
-
 ### isomatch Download path
-isomatch_version = isomatch_settings["version"]
+isomatch_version = config.get("isomatch_version", "v0.6.0")
 isomatch_tar_url = f"https://github.com/zhengxinchang/isomatch/releases/download/{isomatch_version}/isomatch-{isomatch_version}-linux-x86_64.tar.gz"
-
-### isomatch reference-anchored merge: add `ref_annotation` as an extra merge input
-isomatch_use_reference = isomatch_settings.get("use_reference", False)
-
-### isomatch guide evidence (refTSS / polyA sites), downloaded from the repo's
-### `evidence/` folder at the release tag. Keyed by flag suffix ("tss", "tes").
-isomatch_guides = {
-    end: f"tools/isomatch-{isomatch_version}-evidence/{isomatch_settings[f'guide_{end}']}"
-    for end in ("tss", "tes") if isomatch_settings.get(f"guide_{end}")
-}
-isomatch_guide_flags = " ".join(f"--guide-{end} {path}" for end, path in isomatch_guides.items())
 
 ## Functions
 ################################################################################
@@ -55,39 +38,16 @@ def get_input_bam(wildcards):
         return Path(config["input_dir_wood"]) / wildcards.sample / "Mapping" / f"{wildcards.sample}_minimap.bam"
 
 def get_filter_input(wildcards):
-    if wildcards.merge_method == "stringtie":
-        return rules.gffcompare.output.gtf
-    elif wildcards.merge_method == "isomatch":
-        return rules.isomatch_fix.output.gtf
-    elif wildcards.merge_method == "ref":
+    if wildcards.merge_method == "ref":
         return ref_annotation
+    elif wildcards.merge_method.startswith("st"):
+        return rules.gffcompare.output.gtf
+    elif wildcards.merge_method.startswith("iso"):
+        return rules.isomatch_fix.output.gtf
+    raise ValueError(f"Unknown merge method: {wildcards.merge_method}")
 
 ## Rules
 ################################################################################
-rule download_isomatch:
-    message: "--- Downloading and Extracting isomatch ---"
-    output:
-        isomatch_dir = directory(f"tools/isomatch-{isomatch_version}"),
-        executable = f"tools/isomatch-{isomatch_version}/isomatch"
-    params:
-        url = isomatch_tar_url
-    shell:
-        """
-        mkdir -p {output.isomatch_dir}
-        curl -L {params.url} | tar -xz -C {output.isomatch_dir}
-        """
-
-rule download_isomatch_guide:
-    message: "--- Downloading isomatch guide evidence: {wildcards.guide_file} ---"
-    output:
-        bed = "tools/isomatch-{version}-evidence/{guide_file}"
-    params:
-        url = lambda wc: f"https://raw.githubusercontent.com/zhengxinchang/isomatch/{wc.version}/evidence/{wc.guide_file}"
-    wildcard_constraints:
-        version = "v[^/]+",
-        guide_file = "[^/]+\\.bed"
-    shell:
-        "curl -fsSL -o {output.bed} {params.url}"
 
 ### StringTie Rules
 rule stringtie_assembly:
@@ -96,11 +56,11 @@ rule stringtie_assembly:
         bam = get_input_bam,
     output: 
         gtf = step02.path("StringTie_Sample_Assembly/{sample}.gtf")
-    log: step02.log("StringTie_Sample_Assembly/{sample}.log")
+    log: step02.logs("StringTie_Sample_Assembly/{sample}.log")
     benchmark: step02.benchmark("StringTie_Sample_Assembly/{sample}.tsv")
     params:
-        guided = f"-G {ref_annotation}" if stringtie_settings["assembly_guided"] else "",
-        flags = stringtie_settings["assembly_flags"]
+        guided = f"-G {ref_annotation}" if stringtie_assembly_settings["assembly_guided"] else "",
+        flags = stringtie_assembly_settings["assembly_flags"]
     threads: 8
     conda: "../envs/stringtie.yaml"
     shell:
@@ -122,12 +82,12 @@ rule stringtie_merge:
     input: 
         gtf = lambda wc: expand(step02.path("StringTie_Sample_Assembly/{sample}.gtf"), sample = generate_input_samples_df(wc.dataset, wc.group)["sample_id"].tolist(), dataset = wc.dataset, group = wc.group)
     output: 
-        gtf = step02.path("StringTie_Merge/{dataset}.{group}.merged.gtf"),
-    log: step02.log("StringTie_Merge/{dataset}.{group}.merged.log"),
-    benchmark: step02.benchmark("StringTie_Merge/{dataset}.{group}.merged.tsv")
+        gtf = step02.path("StringTie_Merge/{dataset}.{group}.{merge_method}.merged.gtf"),
+    log: step02.logs("StringTie_Merge/{dataset}.{group}.{merge_method}.merged.log"),
+    benchmark: step02.benchmark("StringTie_Merge/{dataset}.{group}.{merge_method}.merged.tsv")
     params:
-        guided = f"-G {ref_annotation}" if stringtie_settings["merge_guided"] else "",
-        flags = stringtie_settings["merge_flags"]
+        guided = lambda wc: f"-G {ref_annotation}" if merge_settings[wc.merge_method].get("use_reference", False) else "",
+        flags = lambda wc: merge_settings[wc.merge_method].get("merge_flags", "")
     threads: 16,
     conda: "../envs/stringtie.yaml",
     shell: "stringtie --merge {params.flags} {params.guided} -p {threads} -o {output} {input} 2>&1 | tee {log}"
@@ -137,12 +97,13 @@ rule gffcompare:
     input:
         gtf = rules.stringtie_merge.output.gtf,
     output: 
-        gtf = step02.path("gffcompare/{dataset}.{group}.gffcompare.annotated.gtf"),
-        stats = step02.path("gffcompare/{dataset}.{group}.gffcompare.stats")
-    log: step02.log("gffcompare/{dataset}.{group}.gffcompare.annotated.log")
-    benchmark: step02.benchmark("gffcompare/{dataset}.{group}.gffcompare.annotated.tsv")
+        gtf = step02.path("gffcompare/{dataset}.{group}.{merge_method}.gffcompare.annotated.gtf"),
+        stats = step02.path("gffcompare/{dataset}.{group}.{merge_method}.gffcompare.stats")
+    log: step02.logs("gffcompare/{dataset}.{group}.{merge_method}.gffcompare.annotated.log")
+    benchmark: step02.benchmark("gffcompare/{dataset}.{group}.{merge_method}.gffcompare.annotated.tsv")
     params: 
-        out_name = lambda wc: expand(step02.path("gffcompare/{dataset}.{group}.gffcompare"), dataset = wc.dataset, group = wc.group),
+        out_name = lambda wc: expand(step02.path("gffcompare/{dataset}.{group}.{merge_method}.gffcompare"), 
+            dataset = wc.dataset, group = wc.group, merge_method = wc.merge_method),
         r_flag = f"-r {ref_annotation}",
         flags = gffcompare_settings["gffcompare_flags"]
     conda: "../envs/gffcompare.yaml",
@@ -155,7 +116,44 @@ rule gffcompare:
         fi
         """
 
+### Common rules
+rule manual_filter:
+    message: """--- Chromosome and Strand filtration ----"""
+    input: get_filter_input
+    output: 
+        gtf = step02.path("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.gtf")
+    log: step02.logs("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.log")
+    benchmark: step02.benchmark("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.tsv")
+    shell: "zcat -f {input} | awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' > {output} 2> {log}"
+
 ### Isomatch rules
+rule download_isomatch:
+    message: "--- Downloading and Extracting isomatch ---"
+    output:
+        isomatch_dir = directory(f"tools/isomatch-{isomatch_version}"),
+        executable = f"tools/isomatch-{isomatch_version}/isomatch"
+    params:
+        url = isomatch_tar_url
+    shell:
+        """
+        mkdir -p {output.isomatch_dir}
+        curl -L {params.url} | tar -xz -C {output.isomatch_dir}
+        """
+
+rule download_isomatch_guide:
+    message: "--- Downloading isomatch guide evidence ---"
+    output:
+        tes = f"tools/isomatch-{isomatch_version}-guides/human.grch38.tes.bed",
+        tss = f"tools/isomatch-{isomatch_version}-guides/human.grch38.tss.bed",
+    params:
+        tes_url = f"https://raw.githubusercontent.com/zhengxinchang/isomatch/{isomatch_version}/evidence/human.grch38.tes.bed",
+        tss_url = f"https://raw.githubusercontent.com/zhengxinchang/isomatch/{isomatch_version}/evidence/human.grch38.tss.bed"
+    shell:
+        """
+        curl -fsSL -o {output.tes} {params.tes_url}
+        curl -fsSL -o {output.tss} {params.tss_url}
+        """
+
 rule isomatch_index_reference:
     message: "--- Indexing reference annotation with isomatch ---"
     input:
@@ -166,86 +164,97 @@ rule isomatch_index_reference:
         gtf = step02.path("isomatch_ref_index/ref_annotation.gtf"),
         isomx = step02.path("isomatch_ref_index/ref_annotation.gtf.isomx"),
         isoms = step02.path("isomatch_ref_index/ref_annotation.gtf.isoms"),
-    log: step02.log("isomatch_ref_index/ref_annotation.log")
+    log: step02.logs("isomatch_ref_index/ref_annotation.log")
     benchmark: step02.benchmark("isomatch_ref_index/ref_annotation.tsv")
     params:
         index_dir = lambda wildcards, output: str(Path(output.gtf).parent)
-    threads: 1,
+    threads: 1, #rm -rf {params.index_dir}/.isomatch-index-*
     shell:
         """
-        set -euo pipefail
         ln -sf $(readlink -f {input.gtf}) {output.gtf}
         {input.executable} index --ref-fa {input.ref_genome} {output.gtf} --out {output.isomx} 2>&1 | tee {log}
-        rm -rf {params.index_dir}/.isomatch-index-*
         """
+
+rule isomatch_filter_sample:
+    message: """--- Filtering sample assembly for isomatch - {wildcards.sample} ----"""
+    input:
+        gtf = rules.stringtie_assembly.output.gtf
+    output:
+        gtf = step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf")
+    log: step02.logs("isomatch_index/{merge_method}/{sample}.filter.log")
+    benchmark: step02.benchmark("isomatch_index/{merge_method}/{sample}.filter.tsv")
+    params:
+        min_fpkm = lambda wc: merge_settings[wc.merge_method].get("min_fpkm", 0),
+        min_tpm = lambda wc: merge_settings[wc.merge_method].get("min_tpm", 0)
+    conda: "../envs/r.yaml"
+    threads: 1
+    script: "../scripts/02a-isomatch_filter_sample.R"
 
 rule isomatch_index:
     message: """--- Indexing with isomatch ----"""
     input:
-        gtf = rules.stringtie_assembly.output.gtf,
+        gtf = rules.isomatch_filter_sample.output.gtf,
         executable = rules.download_isomatch.output.executable,
         ref_genome = ref_genome
     output:
-        gtf = step02.path("isomatch_index/{sample}.gtf"),
-        isomx = step02.path("isomatch_index/{sample}.gtf.isomx"),
-        isoms = step02.path("isomatch_index/{sample}.gtf.isoms"),
-        info = step02.path("isomatch_index/{sample}.gtf.isomx.info.json")
-    log: step02.log("isomatch_index/{sample}.log")
-    benchmark: step02.benchmark("isomatch_index/{sample}.tsv")
+        isomx = step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf.isomx"),
+        isoms = step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf.isoms"),
+        info = step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf.isomx.info.json")
+    log: step02.logs("isomatch_index/{merge_method}/{sample}.index.log")
+    benchmark: step02.benchmark("isomatch_index/{merge_method}/{sample}.index.tsv")
     threads: 1,
     shell: 
         """
-        set -euo pipefail
-        ln -sf $(readlink -f {input.gtf}) {output.gtf}
-        {input.executable} index --ref-fa {input.ref_genome} {output.gtf} --out {output.isomx} 2>&1 | tee {log}
+        {input.executable} index --ref-fa {input.ref_genome} {input.gtf} --out {output.isomx} 2>&1 | tee {log}
         """
 
 rule isomatch_merge:
     message: """--- Merging with isomatch ----"""
     input:
-        gtf = lambda wc: expand(step02.path("isomatch_index/{sample}.gtf"), sample = generate_input_samples_df(wc.dataset, wc.group)["sample_id"].tolist(), dataset = wc.dataset, group = wc.group),
-        # Reference annotation as one more merge input (last, so the samples keep ids S1..Sn)
-        ref_gtf = rules.isomatch_index_reference.output.gtf if isomatch_use_reference else [],
-        guide_tss = isomatch_guides.get("tss", []),
-        guide_tes = isomatch_guides.get("tes", []),
+        gtf = lambda wc: expand(step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf"), 
+            sample = generate_input_samples_df(wc.dataset, wc.group)["sample_id"].tolist(), 
+            dataset = wc.dataset, group = wc.group, merge_method = wc.merge_method),
+        index = lambda wc: expand(step02.path("isomatch_index/{merge_method}/{sample}.filter.gtf.isomx"), 
+            sample = generate_input_samples_df(wc.dataset, wc.group)["sample_id"].tolist(), 
+            dataset = wc.dataset, group = wc.group, merge_method = wc.merge_method), 
+        ref_gtf = lambda wc: rules.isomatch_index_reference.output.gtf if merge_settings[wc.merge_method].get("use_reference", False) else [],
+        guide_tss = lambda wc: rules.download_isomatch_guide.output.tss if merge_settings[wc.merge_method].get("use_bed_files", False) else [],
+        guide_tes = lambda wc: rules.download_isomatch_guide.output.tes if merge_settings[wc.merge_method].get("use_bed_files", False) else [],
         executable = rules.download_isomatch.output.executable,
         ref_genome = ref_genome
     output:
-        gtf = step02.path("isomatch_merge/{dataset}.{group}.merged.gtf.gz"),
-        info = step02.path("isomatch_merge/{dataset}.{group}.merged_info.json"),
-        track = step02.path("isomatch_merge/{dataset}.{group}.track.tsv.gz"),
-        present_absent = step02.path("isomatch_merge/{dataset}.{group}.present_absent.tsv.gz")
-    log: step02.log("isomatch_merge/{dataset}.{group}.merged.log")
-    benchmark: step02.benchmark("isomatch_merge/{dataset}.{group}.merged.tsv")
+        gtf = step02.path("isomatch_merge/{dataset}.{group}.{merge_method}.merged.gtf.gz"),
+        info = step02.path("isomatch_merge/{dataset}.{group}.{merge_method}.merged_info.json"),
+        track = step02.path("isomatch_merge/{dataset}.{group}.{merge_method}.track.tsv.gz"),
+        present_absent = step02.path("isomatch_merge/{dataset}.{group}.{merge_method}.present_absent.tsv.gz")
+    log: step02.logs("isomatch_merge/{dataset}.{group}.{merge_method}.merged.log")
+    benchmark: step02.benchmark("isomatch_merge/{dataset}.{group}.{merge_method}.merged.tsv")
     params:
-        out_prefix = str(step02.path("isomatch_merge/{dataset}.{group}")),
+        out_prefix = str(step02.path("isomatch_merge/{dataset}.{group}.{merge_method}")),
         index_dir = str(step02.path("isomatch_index")),
         ref_index_dir = str(step02.path("isomatch_ref_index")),
-        flags = isomatch_settings["merge_flags"],
-        guide_flags = isomatch_guide_flags
-    threads: 1,
+        flags = lambda wc: merge_settings[wc.merge_method].get("merge_flags", ""),
+        guide_flags = lambda wc, input: f"--guide-tss {input.guide_tss} --guide-tes {input.guide_tes}" if merge_settings[wc.merge_method].get("use_bed_files", False) else []
+    threads: 1,  # rm -rf {params.index_dir}/.isomatch-index-* {params.ref_index_dir}/.isomatch-index-*
     shell:
         """
-        set -euo pipefail
         {input.executable} merge -d 3 -a 3 {params.flags} {params.guide_flags} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} {input.ref_gtf} 2>&1 | tee {log}
-        rm -rf {params.index_dir}/.isomatch-index-* {params.ref_index_dir}/.isomatch-index-*
         """
-
+       
 rule isomatch_chop:
     message: """--- Chopping with isomatch ----"""
     input:
         gtf = rules.isomatch_merge.output.gtf,
         executable = rules.download_isomatch.output.executable
     output:
-        gtf = step02.path("isomatch_merge/{dataset}.{group}.chopped.gtf.gz")
-    log: step02.log("isomatch_merge/{dataset}.{group}.chopped.log")
-    benchmark: step02.benchmark("isomatch_merge/{dataset}.{group}.chopped.tsv")
+        gtf = step02.path("isomatch_merge/{dataset}.{group}.{merge_method}.chopped.gtf.gz")
+    log: step02.logs("isomatch_merge/{dataset}.{group}.{merge_method}.chopped.log")
+    benchmark: step02.benchmark("isomatch_merge/{dataset}.{group}.{merge_method}.chopped.tsv")
     params:
-        out_prefix = str(step02.path("isomatch_merge/{dataset}.{group}"))
+        out_prefix = str(step02.path("isomatch_merge/{dataset}.{group}.{merge_method}"))
     threads: 1,
     shell:
         """
-        set -euo pipefail
         {input.executable} tools chop --out {params.out_prefix} {input.gtf} 2>&1 | tee {log}
         """
 
@@ -254,51 +263,43 @@ rule isomatch_classify:
     input:
         gtf = rules.isomatch_chop.output.gtf,
         ref_gtf = rules.isomatch_index_reference.output.gtf,
-        guide_tss = isomatch_guides.get("tss", []),
-        guide_tes = isomatch_guides.get("tes", []),
+        guide_tss = lambda wc: rules.download_isomatch_guide.output.tss if merge_settings[wc.merge_method].get("use_bed_files", False) else [],
+        guide_tes = lambda wc: rules.download_isomatch_guide.output.tes if merge_settings[wc.merge_method].get("use_bed_files", False) else [],
         executable = rules.download_isomatch.output.executable,
         ref_genome = ref_genome
     output:
-        classification = step02.path("isomatch_classify/{dataset}.{group}.classification.txt.gz"),
-        annotated_gtf = step02.path("isomatch_classify/{dataset}.{group}.annotated.gtf.gz"),
-        info = step02.path("isomatch_classify/{dataset}.{group}.classify_info.json")
-    log: step02.log("isomatch_classify/{dataset}.{group}.log")
-    benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.tsv")
+        classification = step02.path("isomatch_classify/{dataset}.{group}.{merge_method}.classification.txt.gz"),
+        annotated_gtf = step02.path("isomatch_classify/{dataset}.{group}.{merge_method}.annotated.gtf.gz"),
+        info = step02.path("isomatch_classify/{dataset}.{group}.{merge_method}.classify_info.json")
+    log: step02.logs("isomatch_classify/{dataset}.{group}.{merge_method}.log")
+    benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.{merge_method}.tsv")
     params:
-        out_prefix = str(step02.path("isomatch_classify/{dataset}.{group}")),
-        merge_dir = lambda wildcards, input: str(Path(input.gtf).parent),
-        guide_flags = isomatch_guide_flags
-    threads: 1,
+        out_prefix = str(step02.path("isomatch_classify/{dataset}.{group}.{merge_method}")),
+        merge_dir = lambda wc, input: str(Path(input.gtf).parent),
+        guide_flags = lambda wc, input: f"--guide-tss {input.guide_tss} --guide-tes {input.guide_tes}" if merge_settings[wc.merge_method].get("use_bed_files", False) else []
+    threads: 1, #rm -rf {params.merge_dir}/.isomatch-index-*,
     shell:
         """
-        set -euo pipefail
         {input.executable} classify {params.guide_flags} --ref-gtf {input.ref_gtf} --ref-fa {input.ref_genome} --out {params.out_prefix} {input.gtf} 2>&1 | tee {log}
-        rm -rf {params.merge_dir}/.isomatch-index-*
         """
-
+        
 rule isomatch_fix:
     message: """--- Reconciling isomatch attributes with gffcompare schema ----"""
     input:
         gtf = rules.isomatch_classify.output.annotated_gtf,
-        present_absent = rules.isomatch_merge.output.present_absent
+        present_absent = rules.isomatch_merge.output.present_absent,
+        track = rules.isomatch_merge.output.track
     output:
-        gtf = step02.path("isomatch_classify/{dataset}.{group}.fixed.gtf")
-    log: step02.log("isomatch_classify/{dataset}.{group}.fixed.log")
-    benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.fixed.tsv")
+        gtf = step02.path("isomatch_classify/{dataset}.{group}.{merge_method}.fixed.gtf")
+    log: step02.logs("isomatch_classify/{dataset}.{group}.{merge_method}.fixed.log")
+    benchmark: step02.benchmark("isomatch_classify/{dataset}.{group}.{merge_method}.fixed.tsv")
     params:
-        # Column of the reference annotation in the present/absent table ("" if not merged with it)
-        ref_source = Path(str(rules.isomatch_index_reference.output.gtf)).name if isomatch_use_reference else ""
+        ref_source = lambda wc: Path(str(rules.isomatch_index_reference.output.gtf)).name if merge_settings[wc.merge_method].get("use_reference", False) else "",
+        min_sample_cnt = lambda wc: merge_settings[wc.merge_method].get("min_sample_cnt", 0)
     conda: "../envs/r.yaml"
     threads: 1
-    script: "../scripts/02a-isomatch_fix.R"
+    script: "../scripts/02b-isomatch_fix.R"
 
-### Common rules
-rule manual_filter:
-    message: """--- Chromosome and Strand filtration ----"""
-    input: get_filter_input
-    output: 
-        gtf = step02.path("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.gtf")
-    log: step02.log("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.log")
-    benchmark: step02.benchmark("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.tsv")
-    shell: "zcat -f {input} | awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' > {output} 2> {log}"
-    # shell: "awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' {input} > {output} 2> {log}"
+register_test_data_link(rules.isomatch_classify.output.annotated_gtf)
+register_test_data_link(rules.isomatch_merge.output.present_absent)
+register_test_data_link(rules.isomatch_merge.output.track)

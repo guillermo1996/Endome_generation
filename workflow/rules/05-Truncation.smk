@@ -11,8 +11,8 @@ _start_time = time.perf_counter()
 step05 = register_step(
     name="05-Truncation",
     params={
-        "txendcutr_presets": build_tool_settings(config, "txendcutr_settings", "txendcutr_preset"),
-        "mmseqs2_presets": build_tool_settings(config, "mmseqs2_settings", "mmseqs2_preset"),
+        "txendcutr_settings": build_tool_settings(config, "txendcutr_settings", "txendcutr_preset"),
+        "mmseqs2_settings": build_tool_settings(config, "mmseqs2_settings", "mmseqs2_preset"),
     },
     extra_params={
         "scoring_settings": config["scoring_settings"]
@@ -26,7 +26,6 @@ mmseq2_settings = resolve_preset(config, "mmseqs2_settings", "mmseqs2_preset")
 ### Bin information scoring settings.
 scoring_settings = config.get("scoring_settings", {}).get("default")
 
-
 ## Truncation Rules
 ################################################################################
 rule txendcutr_truncation:
@@ -38,7 +37,7 @@ rule txendcutr_truncation:
         fa = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.fa.gz"),
         transcript_overlap = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.overlaps.tsv"),
         merge_table = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.merge.tsv")
-    log: step05.log("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.log")
+    log: step05.logs("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.log")
     benchmark: step05.benchmark("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.tsv")
     params:
         mergeDist = txendcutr_settings["merge_distance"],
@@ -58,19 +57,18 @@ rule endome_export_proteins:
     output:
         faa = step05.path("MMseqs2/{prefix}.{orf_filter}.proteins.faa"),
         protein_map = step05.path("MMseqs2/{prefix}.{orf_filter}.protein_map.tsv"),
-    log: step05.log("MMseqs2/{prefix}.{orf_filter}.export_proteins.log")
+    log: step05.logs("MMseqs2/{prefix}.{orf_filter}.export_proteins.log")
     benchmark: step05.benchmark("MMseqs2/{prefix}.{orf_filter}.export_proteins.tsv")
     conda: "../envs/r.yaml"
     script: "../scripts/05b-Export_Proteins.R"
 
-shell.prefix("set -euo pipefail; ")
 rule endome_mmseqs_search:
     message: """--- All-vs-all MMseqs2 alignment of the ORF proteins ---"""
     input:
         faa = rules.endome_export_proteins.output.faa
     output:
         pairs = step05.path("MMseqs2/{prefix}.{orf_filter}.pairs.tsv")
-    log: step05.log("MMseqs2/{prefix}.{orf_filter}.mmseqs2.log")
+    log: step05.logs("MMseqs2/{prefix}.{orf_filter}.mmseqs2.log")
     benchmark: step05.benchmark("MMseqs2/{prefix}.{orf_filter}.mmseqs2.tsv")
     params:
         sensitivity = mmseq2_settings["sensitivity"],
@@ -121,7 +119,7 @@ rule endome_build_db:
         ref_genome = ref_genome
     output:
         duckdb = step05.path("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.duckdb")
-    log: step05.log("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.build_db.log")
+    log: step05.logs("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.build_db.log")
     benchmark: step05.benchmark("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.build_db.tsv")
     conda: "../envs/r.yaml"
     threads: 4
@@ -135,7 +133,7 @@ rule endome_compute_scores:
         protein_map = step05.path("MMseqs2/{prefix}.{orf_filter}.protein_map.tsv"),
     output:
         done = touch(step05.path("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.scores.done"))
-    log: step05.log("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.scores.log")
+    log: step05.logs("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.scores.log")
     benchmark: step05.benchmark("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.scores.tsv")
     params:
         protein_metric = scoring_settings["protein_metric"],
@@ -153,7 +151,7 @@ rule endome_report:
         done = rules.endome_compute_scores.output.done
     output:
         html = step05.path("characterization/reports/{prefix}.{orf_filter}.w{width}.{txEnd}.html")
-    log: step05.log("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.report.log")
+    log: step05.logs("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.report.log")
     params:
         merge_distance = txendcutr_settings["merge_distance"],
         protein_metric = scoring_settings["protein_metric"],
@@ -172,7 +170,7 @@ rule kallisto_index:
         fa = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.fa.gz")
     output:
         kdx = step05.path("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.kdx")
-    log: step05.log("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.log")
+    log: step05.logs("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.log")
     benchmark: step05.benchmark("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.tsv")
     conda: "../envs/scutrquant-kallisto-bustools.yaml"
     shell:

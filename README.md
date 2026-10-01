@@ -36,9 +36,9 @@ The pipeline is divided in two modules:
 The long reads can come from Oxford Nanopore or PacBio HiFi. For Nanopore data, basecalling and read pre-processing are done outside the pipeline, so the starting point are the FASTQ files (or already aligned BAM files). A PacBio HiFi entry point based on the IsoSeq3 workflow is currently in development.
 
 1. **Alignment**: the long reads are aligned to the genome with minimap2 and sorted with samtools.
-2. **Referenced transcriptome assembly**: first, each sample is assembled with StringTie. Then, all samples are merged into a single transcriptome per dataset and sample group, guided by the reference annotation. The merged transcripts are classified against the reference with gffcompare, and only those in standard chromosomes and with a valid strand are kept. A validation step against Isopedia is currently in development.
+2. **Referenced transcriptome assembly**: first, each sample is assembled with StringTie. Then, all samples are merged into a single transcriptome per dataset and sample group, together with the reference annotation, with one of two methods: StringTie (`stringtie --merge`, then classified against the reference with gffcompare) or isomatch (transcripts are grouped by intron chain and ends, after removing low-abundance transcripts from each sample). Only transcripts in standard chromosomes and with a valid strand are kept. See [Merge method](#merge-method). A validation step against Isopedia is currently in development.
 3. **Artifact removal**: we employ pigeon to classify each transcript against the reference and to remove likely artifacts, such as intra-priming, RT switching or non-canonical junctions with low coverage.
-4. **ORF processing**: ORFannotate predicts the coding ORFs, protein sequences, UTRs and NMD sensitivity of each transcript. The transcripts are then categorized and filtered by coding status and reference biotype (see [ORF filter](#orf-filter)).
+4. **ORF processing**: ORFannotate predicts the coding ORFs, protein sequences, UTRs and NMD sensitivity of each transcript. The transcripts are then categorized by their pigeon structural category and reference biotypes, and filtered (see [ORF filter](#orf-filter)).
 5. **Truncation and annotation**: each transcript is truncated with txendcutr to a window of `w` nt at its 5′ or 3′ end, and the transcripts whose ends fall close together are merged into bins. For each ENDome, the pipeline also generates:
     - A DuckDB database with the transcript, ORF, UTR and bin tables.
     - The **Bin Information Content** score of every bin, which measures how much ORF/protein information is lost when its members are collapsed.
@@ -56,9 +56,6 @@ The long reads can come from Oxford Nanopore or PacBio HiFi. For Nanopore data, 
 | Reference annotation (GTF) | `ref_annotation` | GENCODE v48. Must carry the `gene_type` and `transcript_type` attributes used by the ORF filters. |
 | Long-read samples | `input_dir_<dataset>`, `<group>_samples_<dataset>` | See [Datasets and groups](#datasets-and-groups). |
 | Single-cell samples (Module 2) | `scutrquant_sample_file` | Sample sheet of 10x FASTQ or BAM files, with the condition and cell-type labels used in the differential usage tests. |
-
-> [!NOTE]
-> `pigeon prepare` writes the sorted reference annotation **in the same folder** as `ref_annotation`, so that folder must be writable.
 
 ## Outputs
 
@@ -106,6 +103,7 @@ Each tool runs in its own conda environment, defined in [`workflow/envs/`](workf
 | Component | How it is provided |
 |---|---|
 | ORFannotate | The release is downloaded into `tools/ORFannotate-<version>/`. The conda environment is taken from the `ORFannotate.conda_env.yml` file of that release. |
+| isomatch | The release binary is downloaded into `tools/isomatch-<version>/` (`isomatch_version`). |
 | R environment ([`r.yaml`](workflow/envs/r.yaml)) | Once the conda environment is created, [`r.post-deploy.sh`](workflow/envs/r.post-deploy.sh) installs `txendcutr` and other packages from GitHub. |
 | scUTRquant (step 06) | The release is downloaded into `tools/`. |
 
@@ -114,6 +112,7 @@ Each tool runs in its own conda environment, defined in [`workflow/envs/`](workf
 | [minimap2](https://github.com/lh3/minimap2) | 2.28 | 01 |
 | [samtools](https://www.htslib.org) | 1.21 | 01 |
 | [StringTie](https://github.com/gpertea/stringtie) | 3.0.0 | 02 |
+| [isomatch](https://github.com/zhengxinchang/isomatch) | 0.6.0 | 02 |
 | [gffcompare](https://github.com/gpertea/gffcompare) | 0.12.6 | 02 |
 | [pigeon](https://isoseq.how/classification/pigeon.html) (pbpigeon) | 1.4.0 | 03 |
 | [ORFannotate](https://github.com/egustavsson/ORFannotate) (CPAT 3.0.5) | v1.0.0 | 04 |
@@ -185,11 +184,12 @@ The following table shows the default preset of each tool:
 | Step | Preset key (default) | Default values |
 |---|---|---|
 | 01 | `minimap2_preset: default` | `-ax splice -uf --MD --secondary=no`, `-k 14` |
-| 02 | `stringtie_preset: unguided_guided` | per-sample assembly without a reference (`-L --rf`); merge guided by `ref_annotation` (`--merge -L -G`) |
+| 02 | `stringtie_assembly_preset: unguided` | per-sample assembly without a reference (`-L --rf`) |
+| 02 | `merge_preset: [st_ref, iso_ref]` | See [Merge method](#merge-method). |
 | 02 | `gffcompare_preset: default` | `-T` (alternative `strict`: `--strict-match -e 50 -d 50 -T`) |
 | 03 | `pigeon_preset: default` | pigeon defaults |
 | 04 | `orfannotate_preset: default` | ORFannotate `v1.0.0`, human CPAT model |
-| 04 | `orf_filter_preset: pc` | See [ORF filter](#orf-filter). |
+| 04 | `orf_filter_preset: [ref_pc, pc_novel]` | See [ORF filter](#orf-filter). |
 | 05 | `txendcutr_preset: default` | `merge_distance: 200`, `genome: hg38` |
 | 05 | `mmseqs2_preset: default` | `-s 7.5 -e 10000 --max-seqs 5000 --max-accept 100000 --max-rejected 100000 --alignment-mode 3 -c 0 --cov-mode 0` |
 | 05 | `scoring_settings.default` | `protein_metric: bsr_max`, `length_scaling: ratio`, `member_weights: uniform`; weights protein 1.0, cds_len 0.1, start_codon 0.2, stop_codon 0.2, nmd 0.4 |
@@ -207,32 +207,60 @@ Together with the dataset and the sample group, these are the main parameters of
 
 | Key | Default | Values | Description |
 |---|---|---|---|
-| `transcript_merge_method` | `["stringtie"]` | `stringtie` | How the per-sample assemblies are merged into one transcriptome (step 02). |
-| `orf_filter_preset` | `pc` | `all`, `orfann_coding`, `pc`, or a custom preset | Which transcripts enter the ENDome (step 04). See [ORF filter](#orf-filter). |
+| `merge_preset` | `["st_ref", "iso_ref"]` | presets of `merge_settings` | How the per-sample assemblies are merged into one transcriptome (step 02). See [Merge method](#merge-method). |
+| `orf_filter_preset` | `["ref_pc", "pc_novel"]` | `ref_pc`, `pc_novel`, `pc_all`, `all`, or a custom preset | Which transcripts enter the ENDome (step 04). See [ORF filter](#orf-filter). |
 | `trunc_width` | `[500, 300]` | integers (nt) | Width of the window kept at the transcript end (step 05). |
 | `trunc_site` | `["3p", "5p"]` | `3p`, `5p` | Transcript end that is kept: `3p` for 3′ end-tagged libraries (e.g. 10x 3′), `5p` for 5′ end-tagged libraries (e.g. 10x 5′). |
 | `input_dataset` | — | dataset names | Long-read dataset(s) to assemble. See [Datasets and groups](#datasets-and-groups). |
 | `input_group` | `["control"]` | `control`, `case`, `control_case` | Sample group(s) assembled together. |
 
-The pipeline builds one ENDome for every combination of these values. A typical run employs one dataset and one group, with several widths and both ends. For example, the default values above generate four ENDomes (`w500.3p`, `w500.5p`, `w300.3p`, `w300.5p`) from a single assembly.
+The pipeline builds one ENDome for every combination of these values. A typical run employs one dataset and one group, with several widths and both ends. For example, the default values above generate 16 ENDomes from one dataset and group: 2 merge methods × 2 ORF filters × 2 widths × 2 ends.
+
+### Merge method
+
+The per-sample assemblies can be merged with two tools, selected by the name of the preset in `merge_settings`: presets starting with `st` use StringTie, and presets starting with `iso` use isomatch. Each preset listed in `merge_preset` produces its own transcriptome and ENDomes.
+
+- **StringTie** (`stringtie --merge`) re-assembles the per-sample transcripts and the reference transcripts on one splice graph. Transcripts with the same intron chain are collapsed into one, and reference transcripts keep their GENCODE ID. However, their ends can be extended by reads of other overlapping transcripts.
+- **isomatch** groups transcripts that were already assembled in each sample, without re-assembling them. Transcripts with the same intron chain but ends more than 50 nt apart are kept as separate transcripts, so the reference transcripts keep the GENCODE ends and the alternative 5′/3′ ends observed in the samples are kept as additional transcripts. isomatch has no abundance filter, so each sample is first filtered by FPKM and TPM, as StringTie does with its input transcripts. Transcripts that contain a reference transcript take its GENCODE ID.
+
+| Preset | Tool | Keys |
+|---|---|---|
+| `st_ref` (default) | StringTie | `use_reference: True`, `merge_flags: "-L"` |
+| `iso_ref` (default) | isomatch | `use_reference: True`, `min_fpkm: 1.0`, `min_tpm: 1.0`, `min_sample_cnt: 0` |
+| `iso_ref_lean` | isomatch | as `iso_ref`, without the abundance filter (`min_fpkm: 0`, `min_tpm: 0`) |
+| `st`, `iso` | StringTie / isomatch | as above, without the reference annotation |
+
+The keys of a merge preset are:
+- `use_reference`: include `ref_annotation` in the merge.
+- `merge_flags`: extra flags for `stringtie --merge` or `isomatch merge`.
+- `min_fpkm` / `min_tpm` (isomatch only): per-sample filter applied before the merge (default 0, no filter).
+- `min_sample_cnt` (isomatch only): minimum number of samples in which a transcript must be found. Transcripts that contain a reference transcript are always kept.
+- `use_bed_files` (isomatch only): use the TSS/TES evidence files of the isomatch repository to choose the transcript ends.
+
+StringTie reports many more alternative ends, but most are reference transcripts with extended ends that no sample assembled.
 
 ### ORF filter
 
-The ORF filter decides which transcripts from the assembled transcriptome are truncated. Broadly, we can build two types of ENDome:
+The ORF filter decides which transcripts from the assembled transcriptome are truncated. We can build two types of ENDome:
 - **Conservative**: only protein-coding transcripts anchored to the reference annotation are kept. This is the approach followed for the brain UTRome in Fairbrother-Browne *et al.*, where only transcripts classified as coding and annotated as `protein_coding` in GENCODE were kept.
-- **Inclusive**: novel and non-coding transcripts are also kept. They add more diversity of transcript ends, but their models are less reliable.
+- **Inclusive**: novel transcripts are also kept. They add more diversity of transcript ends, but their models are less reliable.
+
+The filters employ the pigeon classification of each transcript. A transcript is a **reference isoform** (`ref_isoform`) when pigeon classifies it as a full-splice match, i.e. its intron chain is identical to that of a GENCODE transcript. Its ends may differ, so reference isoforms include the alternative 5′/3′ end versions of the reference transcripts. Full-splice and incomplete-splice matches take the gene and gene biotype of their reference transcript, and reference isoforms also take its transcript biotype.
 
 The filter also affects the [Bin Information Content](#the-endome-database) scores, which compare the ORF and protein features of the members of a bin. Note that transcripts without an ORF can only be scored on part of these features.
 
 The following table describes the available presets:
 
-| Preset | Reference gene type | Reference transcript type | ORFannotate class | Transcript in reference | Keeps |
-|---|---|---|---|---|---|
-| `all` | any | any | any | not required | Every transcript that passed artifact removal, including novel and non-coding ones. |
-| `orfann_coding` | any | any | `coding` | not required | Every transcript predicted to be coding, including novel ones. |
-| `pc` (default) | `protein_coding` | `protein_coding` | `coding` | required | Coding transcripts matched to a GENCODE protein-coding transcript. |
+| Preset | Reference gene type | Reference transcript type | ORFannotate class | Structural category | Reference isoform | Keeps |
+|---|---|---|---|---|---|---|
+| `ref_pc` (default) | `protein_coding` | `protein_coding` | `coding` | any | required | Coding reference isoforms of GENCODE protein-coding transcripts, alternative ends included. |
+| `pc_novel` (default) | any | any | `coding` | all except incomplete-splice match | not required | Every coding transcript except fragments of reference transcripts, including novel isoforms and genes. |
+| `pc_all` | any | any | `coding` | any | not required | Every transcript predicted to be coding. |
+| `all` | any | any | any | any | not required | Every transcript that passed artifact removal (debugging). |
 
-To define a custom filter, we only need to add a new preset to `orf_filter_settings` with the same four keys. A value of `["all"]` disables that criterion, and an empty `in_ref_filter` does not require the transcript to be in the reference.
+`pc_novel` excludes incomplete-splice matches because a 3′ fragment cannot be distinguished from a 5′-truncated read, which would bias the transcript ends.
+
+To define a custom filter, we only need to add a new preset to `orf_filter_settings` with the same five keys: `valid_ref_gene_type`, `valid_ref_tx_type`, `valid_orfannotate_type`, `valid_structural_category` and `ref_isoform_filter`. A value of `["all"]` disables a list criterion, and an empty `ref_isoform_filter` does not require the transcript to be a reference isoform.
 
 ## Output folder hashing
 
@@ -244,6 +272,7 @@ The hash is an MD5 digest of the preset values of the step **and of every previo
 - Changing a setting creates new folders for that step and all the following ones. Previous results are kept, so different settings can be compared side by side.
 - Changing a setting never overwrites old results, and it does not re-run the upstream steps whose settings did not change.
 - Preset names are not included in the hash, so renaming a preset without changing its values keeps the same folders.
+- The merge and ORF filter presets are part of the file names, so all the presets of `merge_settings` and `orf_filter_settings` are included in the hash, not only the selected ones. Adding or editing any of them creates new folders for that step and the following ones.
 
 With `use_hash: False`, the folders are only named after the step (e.g. `02-Transcriptome_Assembly`). Note that, in this case, Snakemake may not detect parameter changes inside a step, so we recommend it only for fixed, final configurations.
 
@@ -285,8 +314,11 @@ Each step writes its results into its own folder, and every rule generates a log
     │   └── Samtools_sort/{sample}_sorted.bam
     ├── 02-Transcriptome_Assembly-<hash>/
     │   ├── StringTie_Sample_Assembly/{sample}.gtf
-    │   ├── StringTie_Merge/{dataset}.{group}.merged.gtf
-    │   ├── gffcompare/{dataset}.{group}.gffcompare.{annotated.gtf,stats,loci,tracking}
+    │   ├── StringTie_Merge/{prefix}.merged.gtf                     StringTie presets
+    │   ├── gffcompare/{prefix}.gffcompare.{annotated.gtf,stats,loci,tracking}
+    │   ├── isomatch_index/{merge_method}/{sample}.filter.gtf        isomatch presets: filtered sample + index
+    │   ├── isomatch_merge/{prefix}.{merged.gtf.gz,chopped.gtf.gz,track.tsv.gz,present_absent.tsv.gz}
+    │   ├── isomatch_classify/{prefix}.{classification.txt.gz,annotated.gtf.gz,fixed.gtf}
     │   └── transcriptome_assembly/{prefix}.annotated.clean.gtf
     ├── 03-Artifact_Removal-<hash>/
     │   ├── Prepare/{prefix}.pigeon.sorted.gtf
@@ -308,15 +340,15 @@ Each step writes its results into its own folder, and every rule generates a log
         └── kallisto_index/{endome}.kdx
 ```
 
-- `{prefix}` = `{dataset}.{group}.{merge_method}`, e.g. `Wood.control.stringtie`.
-- `{endome}` = `{prefix}.{orf_filter}.w{width}.{txEnd}`, e.g. `Wood.control.stringtie.pc.w500.5p`. This is also the `run_id` stored in the database.
+- `{prefix}` = `{dataset}.{group}.{merge_method}`, e.g. `Ebbert.control.iso_ref`.
+- `{endome}` = `{prefix}.{orf_filter}.w{width}.{txEnd}`, e.g. `Ebbert.control.iso_ref.ref_pc.w500.5p`. This is also the `run_id` stored in the database.
 - Every step folder also contains `parameters.yaml`, `.logs/` and `.benchmarks/`.
 
 ## Key files
 
 | Step | File | Description |
 |---|---|---|
-| 04 | `ORF_Category/*.isoform_summary.tsv` | Per-transcript annotation: structural category, reference biotypes, coding probability, ORF and UTR lengths, NMD sensitivity and protein sequence. |
+| 04 | `ORF_Category/*.isoform_summary.tsv` | Per-transcript annotation: pigeon structural category and subcategory, reference isoform flag, reference transcript, gene and biotypes, coding probability, ORF and UTR lengths, NMD sensitivity and protein sequence. |
 | 05 | `txendcutr/*.gtf`, `*.fa.gz` | **The ENDome**: the truncated transcript models and their sequences. |
 | 05 | `txendcutr/*.merge.tsv` | Transcript-to-bin assignment (`tx_in` → `tx_out`, with its gene in `gene_out`). |
 | 05 | `txendcutr/*.overlaps.tsv` | Same-gene transcripts that became identical after truncation. Only one of each pair is kept in the GTF. |
@@ -342,6 +374,8 @@ erDiagram
         varchar bin_id FK
         varchar gene_id
         varchar gene_name
+        varchar gene_source
+        varchar merge_gene_id
         varchar aa_id
         varchar cds_id FK
         varchar utr5_id FK
@@ -353,7 +387,8 @@ erDiagram
         varchar strand
         varchar structural_category
         varchar subcategory
-        boolean in_ref
+        boolean ref_isoform
+        varchar ref_transcript_id
         double coding_prob
         varchar ref_transcript_type
         varchar ref_gene_type
@@ -431,9 +466,11 @@ erDiagram
 | `proteins` | distinct protein sequence | ORFannotate protein (trailing stop removed) and its length. |
 | `bin_information` | bin | The Bin Information Content scores and their components. |
 
-Some notes about specific columns:
+Notes about specific columns:
 - **`transcripts.bin_id`**: every transcript belongs to exactly one bin.
-- **`transcripts.superseded_by`**: set for the transcripts whose truncated model duplicated the model of another transcript. These transcripts are counted as members of the bin of that other transcript.
+- **`transcripts.superseded_by`**: set for the transcripts whose truncated model duplicated the model of another transcript. These transcripts are counted as members of the bin.
+- **`transcripts.ref_isoform`**: TRUE for pigeon full-splice matches. `subcategory` tells the reference ends (`reference_match`) from the alternative ones.
+- **`transcripts.gene_id`**: the GENCODE gene for full-splice and incomplete-splice matches (`gene_source = "reference"`), and the locus of the merge otherwise (`gene_source = "merge"`). The merge locus is always kept in `merge_gene_id`.
 
 **Bin Information Content.** The main score is `info_score_norm` (from 0 to 1), calculated as one minus the mean pairwise distance between the members of a bin. A value of 1 means that the members are interchangeable at the ORF/protein level. The distance between two members is a weighted Gower distance over different components.
 
@@ -454,7 +491,7 @@ This step connects each ENDome to [scUTRquant](https://github.com/Mayrlab/scUTRq
 │   ├── config.yaml                  pipeline configuration
 │   └── scUTRquant_config.yaml       template for step 06
 ├── schema/                          DuckDB schema (DBML)
-├── tools/                           downloaded releases (ORFannotate, scUTRquant, …)
+├── tools/                           downloaded releases (isomatch, ORFannotate, scUTRquant, …)
 ├── workflow/
 │   ├── Snakefile                    entry point
 │   ├── rules/                       00-Common … 06-UTR_Quantification
@@ -473,6 +510,7 @@ This step connects each ENDome to [scUTRquant](https://github.com/Mayrlab/scUTRq
 - **minimap2**: Li H. Minimap2: pairwise alignment for nucleotide sequences. *Bioinformatics* 34:3094–3100 (2018).
 - **samtools**: Danecek P. *et al.* Twelve years of SAMtools and BCFtools. *GigaScience* 10:giab008 (2021).
 - **StringTie**: Kovaka S. *et al.* Transcriptome assembly from long-read RNA-seq alignments with StringTie2. *Genome Biology* 20:278 (2019).
+- **isomatch**: Zheng X. isomatch, https://github.com/zhengxinchang/isomatch.
 - **gffcompare**: Pertea G. & Pertea M. GFF Utilities: GffRead and GffCompare. *F1000Research* 9:304 (2020).
 - **pigeon / SQANTI3**: Pardo-Palacios F.J. *et al.* SQANTI3: curation of long-read transcriptomes for accurate identification of known and novel isoforms. *Nature Methods* 21:793–797 (2024).
 - **ORFannotate**: García-Ruiz S. *et al.* ORFannotate: reproducible coding sequence annotation of transcriptome assemblies. *Bioinformatics* (2026). https://doi.org/10.1093/bioinformatics/btag082

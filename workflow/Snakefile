@@ -31,6 +31,7 @@ _utils_import_time = time.perf_counter() - _t
 
 # Set the minimum snakemake version
 min_version("9.23.0")
+shell.prefix("set -euo pipefail; ")
 
 # ── Configuration ─────────────────────────────────────────────────────
 configfile: "config/config.yaml"
@@ -42,8 +43,8 @@ _log(f"Snakemake utils imported in {_utils_import_time:.3f}s")
 # ── Wildcard constraints ──────────────────────────────────────────────
 wildcard_constraints:
     dataset = "Wood|Ebbert|gencode",
-    group = "control|case|control_case|none",
-    merge_method = "isomatch|stringtie|ref",
+    group = "control|case|control_case|none",    
+    merge_method = "(st|iso)(_[A-Za-z0-9_]+)?|ref",
     txEnd = "\\dp",
     sample_id = "[^/]+"
     
@@ -72,7 +73,7 @@ onerror:
 # ── Pipeline variables ────────────────────────────────────────────────
 input_dataset = config.get("input_dataset", ["Ebbert"])
 input_group = config.get("input_group", ["control"])
-merge_method = config.get("transcript_merge_method", ["isomatch"])
+merge_method = config.get("merge_preset", ["st_ref"])
 pc_filter = config.get("orf_filter_preset", ["pc"])
 trunc_site = config.get("trunc_site", ["3p"])
 trunc_width = config.get("trunc_width", [500])
@@ -95,6 +96,26 @@ def generate_param_files():
     }
 
     return sum(param_dict.values(), [])
+
+
+# ── Main outputs ──────────────────────────────────────────────────
+truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
+    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+    width = trunc_width, txEnd = trunc_site)
+info_report = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
+    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+    width = trunc_width, txEnd = trunc_site)
+kallisto_index = expand(step05.path("kallisto_index/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.kdx"),
+    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+    width = trunc_width, txEnd = trunc_site)
+
+rule all:
+    input:
+        parameters = generate_param_files(),
+        truncated_gtf = truncated_gtf,
+        info_report = info_report,
+        kallisto_index = kallisto_index,
+    default_target: True
 
 rule all2:
     input:
@@ -157,7 +178,7 @@ gencode_UTR_equal_report = expand(rules.endome_report.output.html, dataset = "ge
 gencode_UTR_bin_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
     orf_filter = pc_filter, width = "UTR_bin", txEnd = trunc_site)
 
-rule all:
+rule all_3:
     input:
         gencode_default_report = genconde_report,
         gencode_UTR_report = gencode_UTR_report,
@@ -168,4 +189,4 @@ rule all:
         UTR_empty_report = UTR_empty_report,
         UTR_equal_report = UTR_equal_report,
         UTR_bin_report = UTR_bin_report
-    default_target: True
+    default_target: False

@@ -46,14 +46,26 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
+  ## dataset.group.merge_method folder created by the `test_data` rule (its
+  ## name is the prefix wildcard), and the orf_filter preset and truncation
+  ## (width, txEnd) to test. This script WRITES into the DuckDB, so it works on
+  ## an "interactive" copy of the linked database (multi-GB, copied once), never
+  ## on the link itself, which points to the pipeline result.
+  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_db <- paste0(test_orf_filter, ".w", test_width, ".", test_txEnd, ".duckdb")
+  interactive_db <- file.path(test_dir, paste0("interactive.", test_db))
+  if (!file.exists(interactive_db)) file.copy(file.path(test_dir, paste0("test.", test_db)), interactive_db)
   snakemake <- Snakemake(
     input = list(
-      duckdb = "data/test_data/Wood.control/test.pc.w500.3p.duckdb",
-      pairs = "data/test_data/Wood.control/pairs.tsv",
-      protein_map = "data/test_data/Wood.control/test.pc.protein_map.tsv"
+      duckdb = interactive_db,
+      pairs = file.path(test_dir, paste0("test.", test_orf_filter, ".pairs.tsv")),
+      protein_map = file.path(test_dir, paste0("test.", test_orf_filter, ".protein_map.tsv"))
     ),
     output = list(
-      done = "data/test_data/Wood.control.pc.w500.3p.duckdb.scores.done"
+      done = paste0(interactive_db, ".scores.done")
     ),
     params = list(
       include_superseded = TRUE,
@@ -69,13 +81,13 @@ if (interactive()) {
         nmd = 0.4)
     ),
     wildcards = list(
-      prefix = "Wood.control.isomatch", 
-      orf_filter = "pc",
-      width = "500", 
-      txEnd = "3p"
+      prefix = basename(test_dir),
+      orf_filter = test_orf_filter,
+      width = test_width,
+      txEnd = test_txEnd
     ),
     threads = 4,
-    scriptdir = "/home/drihome/MRGuillermoPerez/RytenLab-Research/40-ENDome_generation/workflow/scripts"
+    scriptdir = "workflow/scripts"
   )
 }
 

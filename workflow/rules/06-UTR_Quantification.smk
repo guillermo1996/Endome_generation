@@ -22,7 +22,7 @@ _start_time = time.perf_counter()
 step06 = register_step(
     name="06-UTR_Quantification",
     params={
-        "scUTRquant_presets": build_tool_settings(config, "scUTRquant_settings", "scUTRquant_preset"),
+        "scUTRquant_settings": build_tool_settings(config, "scUTRquant_settings", "scUTRquant_preset"),
     },
 )
 
@@ -45,8 +45,8 @@ def endome_target_files(wildcards):
 rule download_scUTRquant:
     message: "--- Downloading and Extracting scUTRquant ---"
     output:
-        scUTRquant_dir = directory(f"tools/scUTRquant-{orfannotate_version}"),
-        snakefile = f"tools/scUTRquant-{orfannotate_version}/Snakefile"
+        scUTRquant_dir = directory(f"tools/scUTRquant-{scUTRquant_version}"),
+        snakefile = f"tools/scUTRquant-{scUTRquant_version}/Snakefile"
     params:
         url = scUTRquant_tar_url
     shell:
@@ -102,7 +102,7 @@ rule download_scUTRquant:
 #         config_file = step06.path("scUTRquant/scUTRquant_config.yaml")
 #     output:
 #         flag = touch(step06.path("scUTRquant/scUTRquant.done"))
-#     log: step06.log("scUTRquant/run_scUTRquant.log")
+#     log: step06.logs("scUTRquant/run_scUTRquant.log")
 #     threads: 30
 #     shell:
 #         "snakemake -s tools/scUTRquant/Snakefile "
@@ -178,7 +178,7 @@ rule run_scUTRquant:
         snakefile = rules.download_scUTRquant.output.snakefile,
     output:
         flag = step06.path("scUTRquant/scUTRquant.done"),
-    log: step06.log("scUTRquant/run_scUTRquant.log")
+    log: step06.logs("scUTRquant/run_scUTRquant.log")
     threads: 32
     params:
         workdir = lambda w, output: os.path.dirname(output.flag),
