@@ -33,12 +33,12 @@ rule txendcutr_truncation:
     input:
         gtf = rules.ORF_filtration.output.gtf_filter
     output:
-        gtf = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
-        fa = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.fa.gz"),
-        transcript_overlap = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.overlaps.tsv"),
-        merge_table = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.merge.tsv")
-    log: step05.logs("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.log")
-    benchmark: step05.benchmark("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.tsv")
+        gtf = step05.path("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.gtf"),
+        fa = step05.path("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.fa.gz"),
+        transcript_overlap = step05.path("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.overlaps.tsv"),
+        merge_table = step05.path("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.merge.tsv")
+    log: step05.logs("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.log")
+    benchmark: step05.benchmark("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.tsv")
     params:
         mergeDist = txendcutr_settings["merge_distance"],
         genome = txendcutr_settings["genome"],
@@ -167,7 +167,7 @@ rule endome_report:
 rule kallisto_index:
     message: "--- Building kallisto index for the ENDome ---"
     input:
-        fa = step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.fa.gz")
+        fa = step05.path("txendcutr/{prefix}.{orf_filter}.w{width}.{txEnd}.txendcutr.fa.gz")
     output:
         kdx = step05.path("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.kdx")
     log: step05.logs("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.log")

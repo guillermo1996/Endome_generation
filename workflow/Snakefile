@@ -46,7 +46,8 @@ wildcard_constraints:
     group = "control|case|control_case|none",    
     merge_method = "(st|iso)(_[A-Za-z0-9_]+)?|ref",
     txEnd = "\\dp",
-    sample_id = "[^/]+"
+    sample_id = "[^/]+",
+    endome_name = r"[^/]+\.w[^./]+\.\dp"
     
 # ── Rule modules ──────────────────────────────────────────────────────
 _log("Importing individual rules:")
@@ -92,14 +93,14 @@ def generate_param_files():
         "step03_params": expand(step03.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step04_params": expand(step04.path("parameters.yaml"), dataset = input_dataset, group = input_group),
         "step05_params": expand(step05.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        # "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
+        "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
     }
 
     return sum(param_dict.values(), [])
 
 
 # ── Main outputs ──────────────────────────────────────────────────
-truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
+truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.txendcutr.gtf"),
     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
     width = trunc_width, txEnd = trunc_site)
 info_report = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
@@ -108,13 +109,20 @@ info_report = expand(step05.path("characterization/reports/{dataset}.{group}.{me
 kallisto_index = expand(step05.path("kallisto_index/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.kdx"),
     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
     width = trunc_width, txEnd = trunc_site)
+endome_target = expand(step06.path("scUTRquant/ENDome_targets.yml"), dataset = input_dataset, group = input_group)
+scUTRquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"), dataset = input_dataset, group = input_group)
+scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"), dataset = input_dataset, group = input_group)
+pseudoalignment_rates = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"),
+    dataset = input_dataset, group = input_group, merge_method = merge_method)
 
 rule all:
     input:
         parameters = generate_param_files(),
         truncated_gtf = truncated_gtf,
         info_report = info_report,
-        kallisto_index = kallisto_index,
+        scUTRquant_config = scUTRquant_config,
+        scUTRquant = scUTRquant,
+        pseudoalignment_rates = pseudoalignment_rates
     default_target: True
 
 rule all2:

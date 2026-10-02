@@ -36,9 +36,9 @@ scUTRquant_tar_url = f"https://github.com/Mayrlab/scUTRquant/archive/refs/tags/{
 ## Functions
 ################################################################################
 def endome_target_files(wildcards):
-    return expand(step06.path("scUTRquant/ENDomes/{dataset}.{group}.{orf_filter}.w{width}.{txEnd}.ENDome_targets.yml"),
-                  dataset=wildcards.dataset, group=wildcards.group,
-                  orf_filter=pc_filter, width=trunc_width, txEnd=trunc_site)
+    return expand(step06.path("scUTRquant/ENDomes/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.ENDome_targets.yml"),
+        dataset = wildcards.dataset, group = wildcards.group, merge_method = merge_method,
+        orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site)
 
 ## Rules
 ################################################################################
@@ -54,6 +54,106 @@ rule download_scUTRquant:
         mkdir -p {output.scUTRquant_dir}
         curl -L {params.url} | tar -xz -C {output.scUTRquant_dir} --strip-components=1
         """
+
+rule generate_endome_target:
+    message: "--- Writing scUTRquant target entry for {wildcards.endome_name} ---"
+    input:
+        gtf = step05.path("txendcutr/{endome_name}.txendcutr.gtf"),
+        merge = step05.path("txendcutr/{endome_name}.txendcutr.merge.tsv"),
+        kdx = step05.path("kallisto_index/{endome_name}.kdx"),
+    output:
+        targets = step06.path("scUTRquant/ENDomes/{endome_name}.ENDome_targets.yml")
+    run:
+        name = f"{wildcards.endome_name}"
+        base = os.path.abspath(str(step05.path()).format(dataset=wildcards.dataset, group=wildcards.group))
+        
+        entry = {
+            name: {
+                "path": base + "/",
+                "genome": scUTRquant_settings["genome"],
+                "gtf": os.path.relpath(input.gtf, base),
+                "kdx": os.path.relpath(input.kdx, base),
+                "merge_tsv": os.path.relpath(input.merge, base),
+                "tx_annots": None,
+                "tx_annots_csv": None,
+                "gene_annots": None,
+                "gene_annots_csv": None,
+            }
+        }
+        with open(output.targets, "w") as f:
+            yaml.safe_dump(entry, f, sort_keys=False, default_flow_style=False)
+
+rule merge_endome_targets:
+    message: "--- Merging scUTRquant target catalog for {wildcards.dataset}.{wildcards.group} ---"
+    input: endome_target_files
+    output:
+        catalog = step06.path("scUTRquant/ENDome_targets.yml")
+    run:
+        catalog = {}
+        for t in input:
+            with open(t) as f:
+                catalog.update(yaml.safe_load(f))
+        with open(output.catalog, "w") as f:
+            yaml.safe_dump(catalog, f, sort_keys=False, default_flow_style=False)
+            
+rule generate_scutrquant_config:
+    message: "--- Writing resolved scUTRquant config for {wildcards.dataset}.{wildcards.group} ---"
+    input:
+        template = config["scUTRquant_config_template"],
+        targets = rules.merge_endome_targets.output.catalog,
+        samples = config["input_scUTRquant_samples"],
+    output:
+        config_file = step06.path("scUTRquant/scUTRquant_config.yaml")
+    run:
+        cfg = load_configfile(input.template)
+        with open(input.targets) as f:
+            catalog = yaml.safe_load(f)
+        cfg["target"] = list(catalog.keys())
+        cfg["targets_config"] = os.path.abspath(input.targets)
+        cfg["sample_file"] = os.path.abspath(input.samples)
+        for k in ("bx_whitelist", "cell_annots"):
+            if cfg.get(k):
+                cfg[k] = os.path.abspath(os.path.expanduser(cfg[k]))
+        cfg["tmp_dir"] = os.path.abspath(os.path.expanduser(cfg["tmp_dir"]))
+        with open(output.config_file, "w") as f:
+            yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
+
+rule run_scUTRquant:
+    message: "--- Running scUTRquant (nested) for {wildcards.dataset}.{wildcards.group} ---"
+    input:
+        config_file = rules.generate_scutrquant_config.output.config_file,
+        snakefile = rules.download_scUTRquant.output.snakefile,
+    output:
+        flag = step06.path("scUTRquant/scUTRquant.done"),
+    log: step06.logs("scUTRquant/run_scUTRquant.log")
+    threads: 64
+    params:
+        workdir = lambda w, output: os.path.dirname(output.flag),
+        configfile = lambda w, input: os.path.abspath(input.config_file),
+        conda_prefix = os.path.abspath(".snakemake/conda"),   # reuse outer envs
+    shell:
+        """
+        snakemake -s {input.snakefile} \
+            --configfile {params.configfile} \
+            --directory {params.workdir} \
+            --use-conda --conda-prefix {params.conda_prefix} \
+            --cores {threads} 2>&1 | tee {log}
+        touch {output.flag}
+        """
+
+rule pseudoalignment_rates:
+    message: "--- Plotting scUTRquant pseudoalignment rates for {wildcards.prefix} ---"
+    input:
+        config_file = rules.generate_scutrquant_config.output.config_file,
+        scUTRquant = rules.run_scUTRquant.output,   # run_info.json files live in scUTRquant's data/kallisto
+    output:
+        tsv = step06.path("pseudoalignment/{prefix}.pseudoalignment.tsv"),
+        png = step06.path("pseudoalignment/{prefix}.pseudoalignment.png"),
+    log: step06.logs("pseudoalignment/{prefix}.pseudoalignment.log")
+    params:
+        min_samples_boxplot = 3,
+    conda: "../envs/r.yaml"
+    script: "../scripts/06b-Pseudoalignment_Rates.R"
 
 # rule generate_endome_target:
 #     message: "--- Writing scUTRquant target entry for {wildcards.prefix}.{wildcards.orf_filter}.w{wildcards.width}.{wildcards.txEnd} ---"
@@ -110,86 +210,35 @@ rule download_scUTRquant:
 #         "--use-conda --nolock --cores {threads} "
 #         "2>&1 | tee {log}"
 
-rule generate_endome_target:
-    message: "--- Writing scUTRquant target entry for {wildcards.prefix}.{wildcards.orf_filter}.w{wildcards.width}.{wildcards.txEnd} ---"
-    input:
-        gtf = step05.path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
-        merge = step05.path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.merge.tsv"),
-        kdx = step05.path("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.kdx"),
-    output:
-        targets = step06.path("scUTRquant/ENDomes/{prefix}.{orf_filter}.w{width}.{txEnd}.ENDome_targets.yml")
-    run:
-        name = f"{wildcards.prefix}.{wildcards.orf_filter}.w{wildcards.width}.{wildcards.txEnd}"
-        base = os.path.abspath(str(step05.path()).format(dataset=wildcards.dataset, group=wildcards.group))
+# rule generate_endome_target2:
+#     message: "--- Writing scUTRquant target entry for {wildcards.prefix}.{wildcards.orf_filter}.w{wildcards.width}.{wildcards.txEnd} ---"
+#     input:
+#         gtf = step05.path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.gtf"),
+#         merge = step05.path("gtxcutr/{prefix}.{orf_filter}.gtxcutr.w{width}.{txEnd}.merge.tsv"),
+#         kdx = step05.path("kallisto_index/{prefix}.{orf_filter}.w{width}.{txEnd}.kdx"),
+#     output:
+#         targets = step06.path("scUTRquant/ENDomes/{prefix}.{orf_filter}.w{width}.{txEnd}.ENDome_targets.yml")
+#     run:
+#         name = f"{wildcards.prefix}.{wildcards.orf_filter}.w{wildcards.width}.{wildcards.txEnd}"
+#         base = os.path.abspath(str(step05.path()).format(dataset=wildcards.dataset, group=wildcards.group))
         
-        entry = {
-            name: {
-                "path": base + "/",
-                "genome": scUTRquant_settings["genome"],
-                "gtf": os.path.relpath(input.gtf, base),
-                "kdx": os.path.relpath(input.kdx, base),
-                "merge_tsv": os.path.relpath(input.merge, base),
-                "tx_annots": None,
-                "tx_annots_csv": None,
-                "gene_annots": None,
-                "gene_annots_csv": None,
-            }
-        }
-        with open(output.targets, "w") as f:
-            yaml.safe_dump(entry, f, sort_keys=False, default_flow_style=False)
+#         entry = {
+#             name: {
+#                 "path": base + "/",
+#                 "genome": scUTRquant_settings["genome"],
+#                 "gtf": os.path.relpath(input.gtf, base),
+#                 "kdx": os.path.relpath(input.kdx, base),
+#                 "merge_tsv": os.path.relpath(input.merge, base),
+#                 "tx_annots": None,
+#                 "tx_annots_csv": None,
+#                 "gene_annots": None,
+#                 "gene_annots_csv": None,
+#             }
+#         }
+#         with open(output.targets, "w") as f:
+#             yaml.safe_dump(entry, f, sort_keys=False, default_flow_style=False)
 
-rule merge_endome_targets:
-    message: "--- Merging scUTRquant target catalog for {wildcards.dataset}.{wildcards.group} ---"
-    input: endome_target_files
-    output:
-        catalog = step06.path("scUTRquant/ENDome_targets.yml")
-    run:
-        catalog = {}
-        for t in input:
-            with open(t) as f:
-                catalog.update(yaml.safe_load(f))
-        with open(output.catalog, "w") as f:
-            yaml.safe_dump(catalog, f, sort_keys=False, default_flow_style=False)
 
-rule generate_scutrquant_config:
-    message: "--- Writing resolved scUTRquant config for {wildcards.dataset}.{wildcards.group} ---"
-    input:
-        template = config["scUTRquant_config_template"],
-        targets = step06.path("scUTRquant/ENDome_targets.yml"),
-    output:
-        config_file = step06.path("scUTRquant/scUTRquant_config.yaml")
-    run:
-        cfg = load_configfile(input.template)
-        with open(input.targets) as f:
-            catalog = yaml.safe_load(f)
-        cfg["target"] = list(catalog.keys())
-        cfg["targets_config"] = os.path.abspath(input.targets)
-        for k in ("sample_file", "bx_whitelist"):
-            if cfg.get(k):
-                cfg[k] = os.path.abspath(os.path.expanduser(cfg[k]))
-        cfg["tmp_dir"] = os.path.abspath(os.path.expanduser(cfg["tmp_dir"]))   # also fixes "~/tmp"
-        with open(output.config_file, "w") as f:
-            yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
 
-rule run_scUTRquant:
-    message: "--- Running scUTRquant (nested) for {wildcards.dataset}.{wildcards.group} ---"
-    input:
-        config_file = step06.path("scUTRquant/scUTRquant_config.yaml"),
-        snakefile = rules.download_scUTRquant.output.snakefile,
-    output:
-        flag = step06.path("scUTRquant/scUTRquant.done"),
-    log: step06.logs("scUTRquant/run_scUTRquant.log")
-    threads: 32
-    params:
-        workdir = lambda w, output: os.path.dirname(output.flag),
-        configfile = lambda w, input: os.path.abspath(input.config_file),
-        conda_prefix = os.path.abspath(".snakemake/conda"),   # reuse outer envs
-    shell:
-        """
-        snakemake -s {input.snakefile} \
-            --configfile {params.configfile} \
-            --directory {params.workdir} \
-            --use-conda --conda-prefix {params.conda_prefix} \
-            --cores {threads} 2>&1 | tee {log}
-        touch {output.flag}
-        """
+
+
