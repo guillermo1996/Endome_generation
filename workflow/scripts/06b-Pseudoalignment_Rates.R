@@ -57,8 +57,8 @@ if (interactive()) {
       config_file = file.path(test_dir, "scUTRquant/scUTRquant_config.yaml")
     ),
     output = list(
-      tsv = file.path("claude_tmp", paste0(test_prefix, ".pseudoalignment.tsv")),
-      png = file.path("claude_tmp", paste0(test_prefix, ".pseudoalignment.png"))
+      tsv = file.path(test_dir, paste0("interactive.", test_prefix, ".pseudoalignment.tsv")),
+      png = file.path(test_dir, paste0("interactive.", test_prefix, ".pseudoalignment.png"))
     ),
     params = list(
       min_samples_boxplot = 3
@@ -142,6 +142,7 @@ targets <- parse_targets(unlist(scutrquant_config$target), wc$prefix) %>%
 
 if (nrow(targets) == 0) stop("No scUTRquant targets found for prefix '", wc$prefix, "'.", call. = FALSE)
 
+# scutrquant_config$sample_file <- sub("^/home/drihome/", "/home/", scutrquant_config$sample_file)
 samples <- readr::read_csv(scutrquant_config$sample_file) %>% dplyr::pull(sample_id)
 
 #----------------------------------------------------------------------------- #
@@ -177,14 +178,13 @@ median_labels <- plot_data %>%
   dplyr::group_by(metric, orf_filter, width, txEnd) %>%
   dplyr::summarise(rate = median(rate), .groups = "drop")
 
-dodge <- position_dodge(width = 0.75)
+dodge <- position_dodge(width = 0.5)
 
-pseudo_plot <- plot_data %>%
+ plot_data %>%
   ggplot(aes(x = width, y = rate, fill = txEnd)) +
-  {if (n_samples >= min_samples_boxplot) geom_boxplot(width = 0.6, position = dodge, outlier.shape = NA)} +
-  geom_point(aes(group = txEnd), shape = 21, size = 2.5, position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.75, seed = 17)) +
-  geom_text(aes(label = paste0(round(rate, 1), "%"), group = txEnd), data = median_labels,
-            position = dodge, vjust = -1.2, fontface = "bold", size = 3.5) +
+  {if (n_samples >= min_samples_boxplot) geom_boxplot(width = 0.5, position = position_dodge(width = 0.55), outlier.shape = NA)} +
+  # geom_point(aes(group = txEnd), shape = 21, size = 2.5, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.75, seed = 17)) +
+  geom_text(aes(label = paste0(round(rate, 1), "%"), group = txEnd), data = median_labels, position = position_dodge(width=2), fontface = "bold", size = 3) +
   scale_fill_manual(name = "Truncation site", values = txEnd_colours, labels = txEnd_labels) +
   scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.15))) +
   scale_x_discrete(labels = function(x) ifelse(grepl("^\\d+$", x), paste0(x, " nt"), x)) +

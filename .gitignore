@@ -1,23 +1,56 @@
-results/**
-results**
-resources/**
-others/**
-data/**
-.snakemake
-.snakemake/**
-*.Rproj
-.Rproj.user/**
-**.html
+# ==============================================================================
+# ENDome pipeline: .gitignore
+# ==============================================================================
 
-R/Others
-R/Results
-logs
+# ---- Pipeline outputs --------------------------------------------------------
+/results/
+/debug_results/
+/resources/
+slurm-*.out
+nohup.out
 
-.github/
-.template/
-.Rproj.user
-.Rhistory
-tests
-*.vsg# pixi environments
+# ---- Tools fetched at runtime ------------------------------------------------
+/tools/
+
+# ---- Local input data --------------------------------------------------------
+/data/
+
+# ---- Snakemake or enviroments ------------------------------------------------
+.snakemake/
 .pixi/*
 !.pixi/config.toml
+__pycache__/
+*.pyc
+
+# ---- Deprecated and experimental code ----------------------------------------
+**/deprecated/
+workflow/rules/test*_*.smk
+workflow/rules/*_ALT.smk
+*copy.*
+
+# ---- R / RMarkdown byproducts -------------------------------------------------
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+Rplots.pdf
+*_files/
+*_cache/
+workflow/scripts/*.html
+
+# ---- Local development (not part of the published pipeline) -------------------
+/claude_tmp/
+/.claude/
+/test/
+/workflow/scripts/tests
+/docs/satuRn
+/docs/*.md
+*.gpg
+*.code-workspace
+.vscode/
+.idea/
+
+# ---- OS / editor ---------------------------------------------------------------
+.DS_Store
+*~
+*.swp

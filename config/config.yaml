@@ -53,9 +53,11 @@ ref_annotation: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotat
 ## 3'/5' truncation parameters
 trunc_site:  ["3p", "5p"] # Truncation site: "3p" or "5p"
 trunc_width: [500, 300] # Window size (bp) around truncation site
-input_dataset: ["Ebbert"] # Dataset to employ to generate the ENDome
-merge_preset: ["st_ref"] # ["st_ref", "iso_ref", "iso_ref_lean"]
+input_dataset: ["Wood"] # Dataset to employ to generate the ENDome
+merge_preset: ["st_ref", "iso_ref"] # ["st_ref", "iso_ref", "iso_ref_lean"]
 orf_filter_preset: ["ref_pc", "pc_novel"]
+pseudobulk_preset: ["default", "dynamic"]
+satuRn_preset: ["default", "raw"]
 
 
 ## Output directories
@@ -95,7 +97,7 @@ always_save_params: False
 
 ## Input dataset and samples to generate the ENDome
 input_group: ["control"] # Sample group to employ to generate the ENDome
-input_scUTRquant_samples: "data/Hardy_snRNAseq/sample_sheet_ACG.csv"
+input_scUTRquant_samples: "data/Hardy_snRNAseq/sample_sheet.csv"
 
 ### Ebbert (2023) long-read public data
 input_dir_ebbert: "/home/MinaRyten/Emil/public_data/long-read/Ebbert_2023"
@@ -439,48 +441,53 @@ scUTRquant_settings:
     version: "v0.5.1"
     genome: "hg38"
     
-# scutrquant_settings:
-#   default:
-#     dataset_name: "Hardy_snRNAseq"
-#     output_type: "txs"
-#     tech: "10xv3"          # kallisto bus technology string
-#     strand: "--fr-stranded"  # strandedness flag
-#     min_umis: 500              # drop cells below this UMI count
-#     correct_bus: True             # barcode-correct against the whitelist
+############################
+# 07. UTR USAGE
+############################
+pseudobulk_settings:
+  default: # Txs threhsold fixed effes per cell type
+    effective_txs_mode: "fixed"
+    min_effective_txs: 300
+    cell_type_level: "annotation_level_2"
+  dynamic: # Txs threhsold per cell type based on Median Absolute Deviation (MAD)
+    effective_txs_mode: "mad"
+    mad_below_median: 3 # how many standard deviations below mad to remove
+    cell_type_level: "annotation_level_2"
 
-# # Quantifies UTR-isoform usage of the generated ENDome on single-nucleus
-# # RNA-seq data using scUTRquant (https://github.com/Mayrlab/scUTRquant).
-# #
-# # scUTRquant is imported as a Snakemake module straight from GitHub (no vendoring);
-# # its rules are reused and rewired into the step folder. The "target" transcriptome
-# # is the ENDome itself: the gtxcutr GTF + merge table from step 05, plus a kallisto
-# # index built here. The target YAML (config/utrome_config.yaml) is GENERATED at
-# # parse time from the step-05 outputs, so it never needs hand-editing.
-
-# ## Sample sheet: scRNA/snRNA-seq samples to quantify (sample_id,file_type,files)
-# scutrquant_sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv"
-
-# ## Output dataset label (used in the SCE output filenames) and scratch dir.
-# ## These are environment/naming-only, so they are kept OUT of the hashed preset.
-# scutrquant_dataset_name: "Hardy_snRNAseq"
-# scutrquant_tmp_dir: "/home/drihome/MRGuillermoPerez/tmp"
-
-# ## Count matrices to produce. For differential UTR-isoform usage (DRIMSeq) only
-# ## "txs" is required; add "genes" for gene-level counts. Default: txs only.
-# scutrquant_output_type: ["txs"]
-
-# ## Cell-barcode whitelist:
-# ##   null  -> derive it from the data with `bustools whitelist` (works out-of-box)
-# ##   path  -> use a fixed whitelist (recommended for 10x). For 10x v3 this is the
-# ##            official 3M-february-2018.txt barcode list. Download the 10x
-# ##            whitelists with scUTRquant's extdata/bxs/download_10X_whitelists.sh.
-# scutrquant_bx_whitelist: null
-
-# scutrquant_preset: default
-
-# scutrquant_settings:
-#   default:
-#     tech:        "10xv3"          # kallisto bus technology string
-#     strand:      "--fr-stranded"  # strandedness flag
-#     min_umis:    500              # drop cells below this UMI count
-#     correct_bus: True             # barcode-correct against the whitelist
+satuRn_settings:
+  default:
+    annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
+    sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
+    sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
+    exclude_samples: ["gosot"]
+    regions: ["ACG", "IPL"]
+    celltypes: null
+    contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
+    covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
+    min_cells: 5
+    min_genes: 10
+    min_samples_per_group: 3
+    dmfilter:
+      min_samps_gene_prop: 0.75
+      min_gene_expr: 10
+      min_feature_expr: 10
+    p_value: "empirical" # raw | empirical | none (skip stageR)
+    alpha: 0.05
+  raw:
+    annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
+    sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
+    sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
+    exclude_samples: ["gosot"]
+    regions: ["ACG", "IPL"]
+    celltypes: null
+    contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
+    covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
+    min_cells: 5
+    min_genes: 10
+    min_samples_per_group: 3
+    dmfilter:
+      min_samps_gene_prop: 0.75
+      min_gene_expr: 10
+      min_feature_expr: 10
+    p_value: "raw" # raw | empirical | none (skip stageR)
+    alpha: 0.05

@@ -1,0 +1,666 @@
+---
+title: ENDome Pseudobulk Characterization
+subtitle: Nucleus QC and pseudobulk presets
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL / Cambridge - Version 1.0
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+always_allow_html: true
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+shhh <- suppressPackageStartupMessages
+
+shhh({
+  library(fs)
+  library(conflicted)
+  library(tidyverse)
+  library(SummarizedExperiment)
+  library(DRIMSeq)
+})
+
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
+conflicted::conflict_prefer("counts", "DRIMSeq", quiet = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      out.width = "100%", fig.align = "center", dpi = 150,
+                      fig.height = 5.5, fig.width = 9.5)
+options(knitr.graphics.error = FALSE)
+```
+
+```{r setup-theme, echo = F, results = "asis"}
+## Custom sciRmdTheme with increased width.
+## Download from devtools::install_github("https://github.com/guillermo1996/grpSciRmdTheme")
+if(require(grpSciRmdTheme)){
+  grpSciRmdTheme::set.theme(
+    theme = "default",
+    color = NULL,
+    header.sticky = FALSE,
+    list.group.icon = "arrow",
+    font.family = "Arial",
+    font.color = "black",
+    header.color = "darkblue",
+    figure.perc = 100
+  )
+}
+
+## A bug in recent versions of KableExtra requires to load the HTML classes in
+## some circumstances.
+kableExtra::html_dependency_lightable()
+
+cat('
+<style type="text/css">
+table { caption-side: bottom }
+</style>')
+
+theme_endome <- function(base_size = 11, legend_pos = "top"){
+  bs <- base_size
+  theme_gray(base_size = bs) +
+    theme(
+      plot.title = element_text(size = bs * 1.27, face = "bold", hjust = 0, vjust = 1, margin = margin(b = bs/2)),
+      plot.subtitle = element_text(size = bs*0.82),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+      panel.background = element_rect(fill = "#FBFBFB", color = NA),
+      axis.text.x = ggplot2::element_text(color = "black", size = bs*0.82, angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(color = "black", size = bs*0.82),
+      axis.title.x = ggplot2::element_text(face = "bold", size = bs, margin = margin(t = 5)),
+      axis.title.y = ggplot2::element_text(face = "bold", size = bs, margin = margin(r = 10)),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "#444444", linewidth = 0.05, linetype = 2, inherit.blank = TRUE),
+      panel.grid.major.x = element_line(color = "#888888", linewidth = 0.05, linetype = 1, inherit.blank = TRUE),
+      legend.title = element_text(size = bs * 1.09),
+      legend.text = element_text(size = bs * 0.82),
+      legend.position  = legend_pos,
+      legend.key = element_rect(colour = "black", linewidth = 0.01),
+      strip.text.x = element_text(color = "black", face = "bold", size = bs*0.82),
+      strip.background = element_rect(color = "black", linewidth = 0.5, linetype = "solid"),
+      strip.text.y = element_text(color = "black", face = "bold", size = bs*0.82),
+      plot.margin = margin(0.5, 0.5, 0.2, 0.5, "cm")
+    )
+}
+```
+
+```{r snakemake-preamble, echo = FALSE}
+# Define Snakemake interactive parameters ----
+if (!exists("snakemake")) {
+  library(methods)
+  Snakemake <- setClass(
+    "Snakemake",
+    slots = c(
+      input = 'list',
+      output = 'list',
+      params = 'list',
+      wildcards = 'list',
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
+  )
+  ## dataset.group.merge_method folder created by the `test_data` rule (its
+  ## name is the prefix wildcard) and the ENDome to test. Every pseudobulk preset
+  ## linked for that ENDome (test.<endome>.<preset>.{cells.tsv,pseudobulk.rds})
+  ## is picked up from the folder. Absolute paths, as knitr runs from the Rmd folder.
+  repo_dir <- "~/RytenLab-Research/40-ENDome_generation"
+  test_dir <- file.path(repo_dir, "data/test_data/Ebbert.control.st_ref")
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_endome <- paste0(test_orf_filter, ".w", test_width, ".", test_txEnd)
+  test_pattern <- paste0("^test\\.", gsub(".", "\\.", test_endome, fixed = TRUE), "\\.(.+)\\.%s$")
+
+  snakemake <- Snakemake(
+    input = list(
+      cells = list.files(test_dir, pattern = sprintf(test_pattern, "cells\\.tsv"), full.names = TRUE),
+      pseudobulk = list.files(test_dir, pattern = sprintf(test_pattern, "pseudobulk\\.rds"), full.names = TRUE),
+      covariates = "/home/MinaRyten/ASAP/data_for_analysis/Hardy_final_covariates_weighted_and_combined_batches.csv"
+    ),
+    output = list(
+      html = file.path(test_dir, paste0("interactive.", test_endome, ".pseudobulk_report.html"))
+    ),
+    params = list(
+      ## The whole pseudobulk_settings block of the config: only used to show
+      ## the settings of the presets found in the input file names
+      preset_settings = list(
+        default = list(effective_txs_mode = "fixed", min_effective_txs = 300, cell_type_level = "annotation_level_2"),
+        dynamic = list(effective_txs_mode = "mad", mad_below_median = 3, cell_type_level = "annotation_level_2")
+      ),
+      satuRn = list(
+        regions = c("ACG", "IPL"),
+        exclude_samples = c("gosot"),
+        covariates_sample_col = "sample",
+        group_col = "group",
+        contrasts = c("PDD-Control", "PD-Control", "PDD-PD"),
+        fit_mode = "joint",
+        min_cells = 5,
+        min_samples_per_group = 3,
+        min_genes = 10,
+        dmfilter = list(min_samps_gene_prop = 0.75, min_gene_expr = 10, min_feature_expr = 10)
+      )
+    ),
+    wildcards = list(
+      endome_name = paste0(basename(test_dir), ".", test_endome)
+    ),
+    threads = 4,
+    scriptdir = file.path(repo_dir, "workflow/scripts")
+  )
+}
+```
+
+# Introduction
+
+This report compares the **pseudobulk presets** (`pseudobulk_settings` in the config) of a single ENDome. A preset decides which nuclei enter the pseudobulk, through the *effective number of transcripts* threshold of `07a-Process_scUTRquant.R`, and at which annotation level they are grouped into cell types. Everything downstream (the pseudobulk of `07b-Pseudobulk.R` and the satuRn fits of `06e-satuRn_DTU.R`) inherits that choice.
+
+The report answers three questions, and every table and figure has one tab per preset:
+
+1. **Nucleus QC.** How many nuclei does each preset keep, in which cell types, and how evenly across libraries.
+2. **Pseudobulk.** How many nuclei and UMIs end up in each pseudobulk sample, and how many bins and genes are detected per cell type.
+3. **What reaches satuRn.** With the current satuRn settings, which region x cell type fits have enough samples per group, and how many genes and bins survive the `DRIMSeq::dmFilter` step.
+
+The presets are read from the names of the input files (`<endome>.<preset>.cells.tsv` and `<endome>.<preset>.pseudobulk.rds`), so the tabs follow whichever presets have been run.
+
+# Hidden Section {.unlisted .unnumbered .hidden-heading .tabset .break4}
+
+## File paths {-}
+
+```{r script-paths}
+# Snakemake inputs
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+params <- snakemake@params
+wc <- snakemake@wildcards
+
+preset_settings <- params$preset_settings
+saturn <- params$satuRn
+
+#' Pseudobulk preset of an input file, read from its name
+#'
+#' Files are named <endome>.<preset>.<suffix>, with <endome> ending in
+#' .w<width>.<txEnd> (e.g. Ebbert.control.st_ref.ref_pc.w500.3p.default.cells.tsv
+#' or test.ref_pc.w500.3p.dynamic.pseudobulk.rds).
+presetFromPath <- function(path, suffix) {
+  preset <- sub(sprintf("^.*\\.w[^.]+\\.\\dp\\.(.+)\\.%s$", gsub(".", "\\.", suffix, fixed = TRUE)), "\\1", basename(path))
+  if (any(preset == basename(path))) stop("Cannot read the preset from: ", paste(path[preset == basename(path)], collapse = ", "), call. = FALSE)
+  stats::setNames(path.expand(path), preset)
+}
+
+## The presets are the ones found in the input file names, matched by name
+cells_paths <- presetFromPath(unlist(smk_inputs$cells), "cells.tsv")
+pseudobulk_paths <- presetFromPath(unlist(smk_inputs$pseudobulk), "pseudobulk.rds")
+covariates_path <- path.expand(smk_inputs$covariates)
+
+presets <- intersect(names(cells_paths), names(pseudobulk_paths))
+unpaired <- setdiff(union(names(cells_paths), names(pseudobulk_paths)), presets)
+if (length(unpaired) > 0) warning("Presets without both a nucleus table and a pseudobulk (left out): ", paste(unpaired, collapse = ", "))
+if (length(presets) == 0) stop("No preset has both a nucleus table and a pseudobulk", call. = FALSE)
+cells_paths <- cells_paths[presets]
+pseudobulk_paths <- pseudobulk_paths[presets]
+
+missing_files <- c(cells_paths, pseudobulk_paths, covariates_path)[!file.exists(c(cells_paths, pseudobulk_paths, covariates_path))]
+if (length(missing_files) > 0) stop("Missing inputs: ", paste(missing_files, collapse = ", "), call. = FALSE)
+
+### Helper library
+lib_dir <- path.expand(file.path(snakemake@scriptdir, "../lib"))
+if(!dir.exists(lib_dir)) lib_dir <- path.expand(file.path(snakemake@scriptdir, "lib"))
+source(file.path(lib_dir, "hf-notebooks.R"))
+```
+
+```{r script-paths-table, echo = FALSE}
+tibble::tibble(
+  Preset = rep(presets, 2),
+  Input = rep(c("Nucleus table (07a)", "Pseudobulk (07b)"), each = length(presets)),
+  Path = c(cells_paths, pseudobulk_paths)
+) %>%
+  dplyr::bind_rows(tibble::tibble(Preset = "-", Input = "Sample covariates", Path = covariates_path)) %>%
+  renderTable(style = "md", caption = "Inputs of this report.")
+```
+
+## Helper functions {-}
+
+```{r helper-functions}
+fmtInt <- function(x) format(round(x), big.mark = ",", trim = TRUE, scientific = FALSE)
+fmtPct <- function(x, accuracy = 0.1) scales::percent(x, accuracy = accuracy)
+
+#' Write one tab per preset
+#'
+#' Must be called from a chunk with `results = "asis"`, right below a header
+#' with the `.tabset` class. `fun(preset)` returns a ggplot, a kable or NULL.
+tabsetByPreset <- function(fun, level = 3) {
+  for (p in presets) {
+    cat("\n\n", strrep("#", level), " ", p, " {-}\n\n", sep = "")
+    out <- fun(p)
+    if (inherits(out, "ggplot")) {
+      print(out)
+    } else if (inherits(out, "knitr_kable") || inherits(out, "kableExtra")) {
+      cat(as.character(out))
+    } else if (!is.null(out)) {
+      print(out)
+    }
+    cat("\n\n")
+  }
+}
+
+#' Contrasts written as "<group1>-<group2>" (same parsing as 06e)
+parseContrasts <- function(contrasts) {
+  parts <- strsplit(contrasts, "-", fixed = TRUE)
+  tibble::tibble(
+    contrast = vapply(parts, paste, character(1), collapse = "vs"),
+    group1 = vapply(parts, `[`, character(1), 1),
+    group2 = vapply(parts, `[`, character(1), 2)
+  )
+}
+```
+
+## Data loading {-}
+
+The nucleus tables and pseudobulks of every preset, and the sample groups from the covariate table.
+
+```{r load-data}
+## Sample covariates: the group of each sample (donor x region)
+samples <- readr::read_csv(covariates_path) %>%
+  dplyr::rename(sample_id = sample, group = group) %>%
+  dplyr::mutate(region = stringr::str_extract(sample_id, "[^_]+$")) %>%
+  dplyr::select(sample_id, region, group)
+if (length(saturn$exclude_samples) > 0) {
+  samples <- samples %>% dplyr::filter(!grepl(paste(saturn$exclude_samples, collapse = "|"), sample_id))
+}
+
+## Pseudobulks: the cell type level is the one they were built with
+pseudobulks <- lapply(pseudobulk_paths, readRDS)
+cell_type_level <- vapply(presets, function(p) {
+  S4Vectors::metadata(pseudobulks[[p]])$annotation_level %||%
+    preset_settings[[p]]$cell_type_level %||% "annotation_level_2"
+}, character(1))
+
+## Nucleus tables (every annotated nucleus, with pass_qc)
+cells <- lapply(presets, function(p) {
+  readr::read_tsv(cells_paths[[p]]) %>%
+    dplyr::mutate(celltype = .data[[cell_type_level[[p]]]],
+                  region = stringr::str_extract(sample_id, "[^_]+$"))
+}) %>% stats::setNames(presets)
+
+## Shared cell type order (largest first) and colour by major cell type
+celltype_major <- cells[[1]] %>%
+  dplyr::count(celltype, annotation_level_0) %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::summarise(major = annotation_level_0[which.max(n)], n = sum(n), .groups = "drop") %>%
+  dplyr::arrange(dplyr::desc(n))
+celltype_levels <- celltype_major$celltype
+major_palette <- stats::setNames(scales::hue_pal()(dplyr::n_distinct(celltype_major$major)), sort(unique(celltype_major$major)))
+```
+
+# Presets {.tabset .tabset-pills}
+
+The settings of each preset, as given in `pseudobulk_settings`.
+
+```{r presets-table, results = "asis", echo = FALSE}
+tabsetByPreset(level = 2, function(p) {
+  s <- preset_settings[[p]]
+  if (is.null(s)) {
+    cat(sprintf("The `%s` preset is not in `pseudobulk_settings`: its settings are unknown, only its outputs are shown.\n\n", p))
+    return(NULL)
+  }
+  tibble::tibble(Setting = names(s), Value = vapply(s, function(v) paste(v, collapse = ", "), character(1))) %>%
+    renderTable(style = "md", caption = sprintf("Settings of the `%s` preset.", p))
+})
+```
+
+# Nucleus QC
+
+`07a` keeps a nucleus when its effective number of transcripts (2^Shannon entropy of its bin counts) is above the preset's threshold: a single value for every nucleus (`fixed`), or a value per cell type at a number of median absolute deviations below the cell type's median, on the log scale (`mad`). Only annotated nuclei are counted here, as unannotated barcodes never enter the pseudobulk.
+
+## Summary {.tabset .tabset-pills}
+
+```{r qc-overview, results = "asis", echo = FALSE}
+tabsetByPreset(function(p) {
+  x <- cells[[p]]
+  tibble::tibble(
+    Metric = c("Annotated nuclei", "Nuclei passing QC", "Nuclei removed", "Libraries", "Samples (donor x region)", "Cell types"),
+    Value = c(fmtInt(nrow(x)), fmtInt(sum(x$pass_qc)), fmtPct(1 - mean(x$pass_qc)),
+              fmtInt(dplyr::n_distinct(x$sample_id_batch)), fmtInt(dplyr::n_distinct(x$sample_id)),
+              fmtInt(dplyr::n_distinct(x$celltype)))
+  ) %>%
+    renderTable(style = "md", caption = sprintf("Nucleus QC of the `%s` preset.", p))
+})
+```
+
+## Nuclei retained per cell type {.tabset .tabset-pills}
+
+```{r qc-celltype-table, results = "asis", echo = FALSE}
+qc_celltype <- lapply(cells, function(x) {
+  x %>%
+    dplyr::group_by(celltype, region) %>%
+    dplyr::summarise(
+      annotated = dplyr::n(),
+      retained = sum(pass_qc),
+      removed = 1 - retained / annotated,
+      median_effective_txs = median(effective_txs, na.rm = TRUE),
+      threshold = median(effective_txs_threshold),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)) %>%
+    dplyr::arrange(celltype, region)
+})
+
+tabsetByPreset(function(p) {
+  qc_celltype[[p]] %>%
+    dplyr::mutate(removed = fmtPct(removed), median_effective_txs = round(median_effective_txs),
+                  threshold = round(threshold)) %>%
+    dplyr::rename(`Cell type` = celltype, Region = region, `Annotated` = annotated, `Retained` = retained,
+                  `% Removed` = removed, `Median eff. txs` = median_effective_txs, `Threshold` = threshold) %>%
+    renderTable(style = "md", caption = sprintf("Nuclei per cell type and region, `%s` preset.", p))
+})
+```
+
+```{r qc-celltype-bar, results = "asis", echo = FALSE, fig.height = 7}
+cat("\n\n## % of nuclei removed {.tabset .tabset-pills}\n\n")
+tabsetByPreset(function(p) {
+  qc_celltype[[p]] %>%
+    ggplot(aes(x = removed, y = forcats::fct_rev(celltype), fill = region)) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.75, colour = "black", linewidth = 0.2) +
+    scale_x_continuous(labels = scales::percent, limits = c(0, 1), expand = expansion(mult = c(0, 0.02))) +
+    labs(x = "Nuclei removed by the effective-transcript QC", y = NULL, fill = "Region",
+         title = "Fraction of annotated nuclei removed", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+```{r qc-distribution, results = "asis", echo = FALSE, fig.height = 7.5}
+cat("\n\n## Effective transcripts per cell type {.tabset .tabset-pills}\n\n")
+cat("Distribution of the effective number of transcripts of the annotated nuclei. The red mark is the threshold applied to the cell type.\n\n")
+tabsetByPreset(function(p) {
+  thr <- qc_celltype[[p]] %>% dplyr::distinct(celltype, threshold)
+  cells[[p]] %>%
+    dplyr::filter(!is.na(effective_txs), effective_txs > 0) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)) %>%
+    dplyr::left_join(celltype_major %>% dplyr::select(celltype, major) %>%
+                       dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)), by = "celltype") %>%
+    ggplot(aes(x = effective_txs, y = forcats::fct_rev(celltype))) +
+    geom_violin(aes(fill = major), scale = "width", colour = NA, alpha = 0.6) +
+    geom_boxplot(width = 0.2, outlier.shape = NA, linewidth = 0.3) +
+    geom_point(data = thr, aes(x = threshold, y = forcats::fct_rev(celltype)), shape = 23, size = 2.5, fill = "red", colour = "black") +
+    scale_x_log10(labels = scales::label_comma()) +
+    scale_fill_manual(values = major_palette) +
+    labs(x = "Effective number of transcripts (log10)", y = NULL, fill = "Major cell type",
+         title = "Effective transcripts per nucleus", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+```{r qc-library, results = "asis", echo = FALSE, fig.height = 7}
+cat("\n\n## Removal across libraries {.tabset .tabset-pills}\n\n")
+cat("Fraction of nuclei removed in each library, per cell type (library x cell type combinations with at least 10 annotated nuclei). A wide box means that the QC acts very differently between libraries.\n\n")
+tabsetByPreset(function(p) {
+  cells[[p]] %>%
+    dplyr::group_by(sample_id_batch, celltype) %>%
+    dplyr::summarise(n = dplyr::n(), removed = 1 - mean(pass_qc), .groups = "drop") %>%
+    dplyr::filter(n >= 10) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)) %>%
+    ggplot(aes(x = removed, y = forcats::fct_rev(celltype))) +
+    geom_boxplot(outlier.size = 0.6, fill = "#DDE5F0") +
+    scale_x_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(x = "Nuclei removed per library", y = NULL,
+         title = "Removal across libraries", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+```{r qc-umis, results = "asis", echo = FALSE, fig.height = 6.5}
+cat("\n\n## Effective transcripts and library size {.tabset .tabset-pills}\n\n")
+cat("Effective transcripts against total UMIs for a random subset of 60,000 annotated nuclei, coloured by whether they pass the QC.\n\n")
+set.seed(17)
+tabsetByPreset(function(p) {
+  cells[[p]] %>%
+    dplyr::filter(!is.na(effective_txs), effective_txs > 0, total_umis > 0) %>%
+    dplyr::slice_sample(n = 60000) %>%
+    ggplot(aes(x = total_umis, y = effective_txs, colour = pass_qc)) +
+    geom_point(size = 0.3, alpha = 0.4) +
+    scale_x_log10(labels = scales::label_comma()) +
+    scale_y_log10(labels = scales::label_comma()) +
+    scale_colour_manual(values = c(`TRUE` = "#2166ac", `FALSE` = "#b2182b"), labels = c(`TRUE` = "Pass", `FALSE` = "Removed")) +
+    facet_wrap(~ annotation_level_0) +
+    guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+    labs(x = "Total UMIs (log10)", y = "Effective transcripts (log10)", colour = NULL,
+         title = "Effective transcripts vs library size", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+# Pseudobulk
+
+`07b` sums the raw counts of the retained nuclei by sample (donor x region) and cell type. Here, a pseudobulk sample is a donor x region x cell type combination with at least one retained nucleus.
+
+```{r pseudobulk-stats}
+pb_samples <- lapply(presets, function(p) {
+  pb <- pseudobulks[[p]]
+  n_cells <- cells[[p]] %>% dplyr::filter(pass_qc) %>% dplyr::count(sample_id, celltype, name = "n_cells")
+  purrr::map_dfr(assayNames(pb), function(ct) {
+    X <- assay(pb, ct)
+    tibble::tibble(sample_id = colnames(X), celltype = ct,
+                   umis = Matrix::colSums(X), bins_detected = Matrix::colSums(X > 0))
+  }) %>%
+    dplyr::inner_join(n_cells, by = c("sample_id", "celltype")) %>%
+    dplyr::mutate(region = stringr::str_extract(sample_id, "[^_]+$"),
+                  celltype = factor(celltype, levels = celltype_levels))
+}) %>% stats::setNames(presets)
+```
+
+```{r pseudobulk-ncells, results = "asis", echo = FALSE, fig.height = 7.5}
+cat("\n\n## Nuclei per pseudobulk sample {.tabset .tabset-pills}\n\n")
+cat(sprintf("The dashed line is satuRn's `min_cells` (%s): samples below it are left out of the fits.\n\n", saturn$min_cells))
+tabsetByPreset(function(p) {
+  pb_samples[[p]] %>%
+    ggplot(aes(x = n_cells, y = forcats::fct_rev(celltype), fill = region)) +
+    geom_boxplot(outlier.size = 0.5, linewidth = 0.3) +
+    geom_vline(xintercept = saturn$min_cells, linetype = 2, colour = "red") +
+    scale_x_log10(labels = scales::label_comma()) +
+    labs(x = "Nuclei per pseudobulk sample (log10)", y = NULL, fill = "Region",
+         title = "Nuclei per pseudobulk sample", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+```{r pseudobulk-umis, results = "asis", echo = FALSE, fig.height = 7.5}
+cat("\n\n## UMIs per pseudobulk sample {.tabset .tabset-pills}\n\n")
+tabsetByPreset(function(p) {
+  pb_samples[[p]] %>%
+    ggplot(aes(x = umis, y = forcats::fct_rev(celltype), fill = region)) +
+    geom_boxplot(outlier.size = 0.5, linewidth = 0.3) +
+    scale_x_log10(labels = scales::label_comma()) +
+    labs(x = "UMIs per pseudobulk sample (log10)", y = NULL, fill = "Region",
+         title = "Pseudobulk depth", subtitle = sprintf("Preset: %s", p)) +
+    theme_endome()
+})
+```
+
+## Bins and genes detected per cell type {.tabset .tabset-pills}
+
+Per cell type and region: pseudobulk samples (with at least one nucleus, and with at least `min_cells`), median nuclei and UMIs per sample, bins with counts in any sample, and genes with at least two such bins (the minimum for a usage test).
+
+```{r pseudobulk-table, results = "asis", echo = FALSE}
+pb_celltype <- lapply(presets, function(p) {
+  pb <- pseudobulks[[p]]
+  gene_id <- rowData(pb)$gene_id
+  detected <- purrr::map_dfr(assayNames(pb), function(ct) {
+    X <- assay(pb, ct)
+    purrr::map_dfr(unique(stringr::str_extract(colnames(X), "[^_]+$")), function(rg) {
+      keep_cols <- stringr::str_extract(colnames(X), "[^_]+$") == rg
+      bin_detected <- Matrix::rowSums(X[, keep_cols, drop = FALSE]) > 0
+      bins_per_gene <- table(gene_id[bin_detected])
+      tibble::tibble(celltype = ct, region = rg, bins_detected = sum(bin_detected),
+                     genes_multi_bin = sum(bins_per_gene >= 2))
+    })
+  })
+  pb_samples[[p]] %>%
+    dplyr::group_by(celltype, region) %>%
+    dplyr::summarise(samples = dplyr::n(), samples_min_cells = sum(n_cells >= saturn$min_cells),
+                     median_nuclei = median(n_cells), median_umis = median(umis), .groups = "drop") %>%
+    dplyr::left_join(detected %>% dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)),
+                     by = c("celltype", "region")) %>%
+    dplyr::arrange(celltype, region)
+}) %>% stats::setNames(presets)
+
+tabsetByPreset(function(p) {
+  pb_celltype[[p]] %>%
+    dplyr::rename(`Cell type` = celltype, Region = region, Samples = samples,
+                  `Samples >= min_cells` = samples_min_cells, `Median nuclei` = median_nuclei,
+                  `Median UMIs` = median_umis, `Bins detected` = bins_detected,
+                  `Genes with >= 2 bins` = genes_multi_bin) %>%
+    renderTable(style = "md", digits = 0, caption = sprintf("Pseudobulk per cell type and region, `%s` preset.", p))
+})
+```
+
+# What reaches satuRn
+
+This section reproduces the sample selection and the bin filter of `06e-satuRn_DTU.R` (sections 2.1 and 2.2) with the current satuRn settings, without fitting any model. For every region x cell type fit (`fit_mode = "`r saturn$fit_mode`"`), it keeps the samples with at least `min_cells` nuclei (`r saturn$min_cells`), drops the groups with fewer than `min_samples_per_group` such samples (`r saturn$min_samples_per_group`), applies `DRIMSeq::dmFilter` (genes with at least `r saturn$dmfilter$min_gene_expr` counts in `r fmtPct(saturn$dmfilter$min_samps_gene_prop, 1)` of the samples; bins with at least `r saturn$dmfilter$min_feature_expr` counts in as many samples as the smallest group) and keeps the genes with at least two bins. A fit runs when at least `min_genes` (`r saturn$min_genes`) genes remain.
+
+```{r saturn-reach}
+contrast_tbl <- parseContrasts(unlist(saturn$contrasts))
+fit_defs <- if (identical(saturn$fit_mode, "pairwise")) {
+  split(contrast_tbl, contrast_tbl$contrast)
+} else {
+  list(joint = contrast_tbl)
+}
+
+#' Samples, filtered genes and bins of one region x cell type fit (06e 2.1-2.2)
+reachOne <- function(pb, n_cells, region, celltype, fit_name, fit_contrasts) {
+  fit_groups <- unique(c(fit_contrasts$group1, fit_contrasts$group2))
+  fit_samples <- samples %>%
+    dplyr::filter(region == !!region, group %in% fit_groups) %>%
+    dplyr::inner_join(n_cells %>% dplyr::filter(celltype == !!celltype) %>% dplyr::select(sample_id, n_cells), by = "sample_id") %>%
+    dplyr::filter(n_cells >= saturn$min_cells, sample_id %in% colnames(pb))
+  cts <- as.matrix(assay(pb, celltype)[, fit_samples$sample_id, drop = FALSE])
+  fit_samples <- fit_samples[colSums(cts) > 0, ]
+  cts <- cts[, fit_samples$sample_id, drop = FALSE]
+
+  group_sizes <- table(factor(fit_samples$group, levels = fit_groups))
+  kept_groups <- names(group_sizes)[group_sizes >= saturn$min_samples_per_group]
+  testable <- sum(fit_contrasts$group1 %in% kept_groups & fit_contrasts$group2 %in% kept_groups)
+  base <- tibble::tibble(region = region, celltype = celltype, fit = fit_name,
+                         group_sizes = paste(names(group_sizes), group_sizes, sep = "=", collapse = ";"),
+                         contrasts_testable = testable, genes = 0L, bins = 0L, bins_per_gene = list(integer(0)))
+  if (testable == 0) return(dplyr::mutate(base, status = "skipped: too few samples"))
+
+  fit_samples <- fit_samples %>% dplyr::filter(group %in% kept_groups)
+  cts <- cts[, fit_samples$sample_id, drop = FALSE]
+  keep_rows <- rowSums(cts) > 0
+  d <- DRIMSeq::dmDSdata(
+    counts = data.frame(gene_id = rowData(pb)$gene_id[keep_rows], feature_id = rownames(cts)[keep_rows],
+                        cts[keep_rows, , drop = FALSE], check.names = FALSE, stringsAsFactors = FALSE),
+    samples = data.frame(sample_id = fit_samples$sample_id, group = fit_samples$group, stringsAsFactors = FALSE))
+  d <- tryCatch(DRIMSeq::dmFilter(d,
+                  min_samps_gene_expr = round(nrow(fit_samples) * saturn$dmfilter$min_samps_gene_prop),
+                  min_samps_feature_expr = min(group_sizes[kept_groups]),
+                  min_gene_expr = saturn$dmfilter$min_gene_expr,
+                  min_feature_expr = saturn$dmfilter$min_feature_expr),
+                error = function(e) NULL)
+  if (is.null(d)) return(dplyr::mutate(base, status = "skipped: no genes after filtering"))
+
+  gene_bins <- table(as.character(DRIMSeq::counts(d)$gene_id))
+  gene_bins <- as.integer(gene_bins[gene_bins >= 2])
+  base %>% dplyr::mutate(
+    genes = length(gene_bins), bins = as.integer(sum(gene_bins)),
+    bins_per_gene = list(gene_bins),
+    status = dplyr::if_else(genes >= saturn$min_genes, "fit", "skipped: < min_genes"))
+}
+
+saturn_reach <- lapply(presets, function(p) {
+  pb <- pseudobulks[[p]]
+  n_cells <- pb_samples[[p]] %>% dplyr::mutate(celltype = as.character(celltype))
+  grid <- tidyr::expand_grid(region = intersect(unlist(saturn$regions), unique(samples$region)),
+                             celltype = intersect(celltype_levels, assayNames(pb)),
+                             fit = names(fit_defs))
+  purrr::pmap_dfr(grid, function(region, celltype, fit) reachOne(pb, n_cells, region, celltype, fit, fit_defs[[fit]])) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels))
+}) %>% stats::setNames(presets)
+```
+
+## Summary {.tabset .tabset-pills}
+
+```{r saturn-summary, results = "asis", echo = FALSE}
+tabsetByPreset(function(p) {
+  saturn_reach[[p]] %>%
+    dplyr::group_by(Region = region) %>%
+    dplyr::summarise(`Cell types` = dplyr::n_distinct(celltype),
+                     `Fits that run` = sum(status == "fit"),
+                     `Genes tested (all fits)` = sum(genes[status == "fit"]),
+                     `Bins tested (all fits)` = sum(bins[status == "fit"]),
+                     .groups = "drop") %>%
+    renderTable(style = "md", caption = sprintf("Fits that would reach satuRn, `%s` preset.", p))
+})
+```
+
+## Fits per region and cell type {.tabset .tabset-pills}
+
+```{r saturn-table, results = "asis", echo = FALSE}
+tabsetByPreset(function(p) {
+  saturn_reach[[p]] %>%
+    dplyr::arrange(region, celltype) %>%
+    dplyr::select(Region = region, `Cell type` = celltype, Fit = fit, `Samples per group` = group_sizes,
+                  `Testable contrasts` = contrasts_testable, Genes = genes, Bins = bins, Status = status) %>%
+    renderTable(style = "md", caption = sprintf("Samples, genes and bins of each satuRn fit, `%s` preset.", p))
+})
+```
+
+```{r saturn-genes, results = "asis", echo = FALSE, fig.height = 7.5}
+cat("\n\n## Genes passing the filter {.tabset .tabset-pills}\n\n")
+cat(sprintf("Genes with at least two bins after `dmFilter`, per cell type. The dashed line is `min_genes` (%s).\n\n", saturn$min_genes))
+tabsetByPreset(function(p) {
+  saturn_reach[[p]] %>%
+    dplyr::filter(fit == names(fit_defs)[1]) %>%
+    ggplot(aes(x = genes, y = forcats::fct_rev(celltype), fill = status)) +
+    geom_col(colour = "black", linewidth = 0.2) +
+    geom_vline(xintercept = saturn$min_genes, linetype = 2, colour = "red") +
+    scale_x_continuous(trans = scales::pseudo_log_trans(base = 10), breaks = c(0, 10, 100, 1000, 10000),
+                       labels = scales::label_comma()) +
+    scale_fill_manual(values = c(fit = "#2166ac", `skipped: < min_genes` = "#ef8a62",
+                                 `skipped: no genes after filtering` = "#b2182b", `skipped: too few samples` = "#999999")) +
+    facet_wrap(~ region) +
+    labs(x = "Genes tested (pseudo-log10)", y = NULL, fill = NULL,
+         title = "Genes reaching satuRn", subtitle = sprintf("Preset: %s | fit: %s", p, names(fit_defs)[1])) +
+    theme_endome()
+})
+```
+
+```{r saturn-bins-per-gene, results = "asis", echo = FALSE, fig.height = 7.5}
+cat("\n\n## Bins per tested gene {.tabset .tabset-pills}\n\n")
+cat("Share of the tested genes with 2, 3, 4 or 5+ bins after the filter, for the fits that run.\n\n")
+tabsetByPreset(function(p) {
+  x <- saturn_reach[[p]] %>%
+    dplyr::filter(status == "fit", fit == names(fit_defs)[1]) %>%
+    dplyr::select(region, celltype, bins_per_gene) %>%
+    tidyr::unnest(bins_per_gene) %>%
+    dplyr::mutate(n_bins = factor(dplyr::if_else(bins_per_gene >= 5, "5+", as.character(bins_per_gene)), levels = c("2", "3", "4", "5+")))
+  if (nrow(x) == 0) return(NULL)
+  x %>%
+    ggplot(aes(y = forcats::fct_rev(celltype), fill = n_bins)) +
+    geom_bar(position = "fill", colour = "black", linewidth = 0.2) +
+    scale_x_continuous(labels = scales::percent) +
+    scale_fill_brewer(palette = "Blues") +
+    facet_wrap(~ region) +
+    labs(x = "Share of tested genes", y = NULL, fill = "Bins per gene",
+         title = "Bins per tested gene", subtitle = sprintf("Preset: %s | fit: %s", p, names(fit_defs)[1])) +
+    theme_endome()
+})
+```
+
+# Session info {.unlisted .unnumbered}
+
+```{r session-info, echo = FALSE}
+sessionInfo()
+```

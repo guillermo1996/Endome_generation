@@ -380,6 +380,7 @@ _test_wildcard_values = {
     "orf_filter": config.get("orf_filter_preset", ["pc"]),
     "width": config.get("trunc_width", [500]),
     "txEnd": config.get("trunc_site", ["3p"]),
+    "pseudobulk_method": config.get("pseudobulk_preset", ["default"]),
 }
 _test_data_links = {}
 
@@ -389,16 +390,39 @@ def register_test_data_link(rule_output) -> None:
     Every dataset x group x merge method gets its own folder
     (data/test_data/{dataset}.{group}.{merge_method}/) and the files keep a generic
     "test" prefix, so a script's interactive block only needs to change the folder.
-    Every combination of orf_filter, width and txEnd is linked.
+    Every combination of the wildcards in `_test_wildcard_values` that appear in
+    the template (orf_filter, width, txEnd, pseudobulk_method) is linked.
+
+    `rule_output` can be a single template or a list of them (e.g. an output
+    entry built with expand(..., allow_missing=True)). Templates with an
+    {endome_name} wildcard are supported: it stands for
+    {prefix}.{orf_filter}.w{width}.{txEnd}. When it only appears in a folder
+    (e.g. scUTRquant's data/sce/{endome_name}/hardy_snRNAseq.txs.Rds), it is
+    prepended to the file name so each ENDome gets its own link
+    (test.{orf_filter}.w{width}.{txEnd}.hardy_snRNAseq.txs.Rds).
     """
+    if isinstance(rule_output, (list, tuple)):
+        for single_output in rule_output:
+            register_test_data_link(single_output)
+        return
+
+    endome_template = "{prefix}.{orf_filter}.w{width}.{txEnd}"
     template = str(rule_output)
+    name_template = Path(template).name
+    if "{endome_name}" in template and "{endome_name}" not in name_template:
+        name_template = "{endome_name}." + name_template
+    template = template.replace("{endome_name}", endome_template)
+    name_template = name_template.replace("{endome_name}", endome_template)
     ## Step 02 outputs name the combination with three wildcards instead of {prefix}
-    name_template = Path(template).name.replace("{dataset}.{group}.{merge_method}", "{prefix}")
+    name_template = name_template.replace("{dataset}.{group}.{merge_method}", "{prefix}")
+
+    ## Only the wildcards used by this template are expanded
+    used_wildcards = {k: v for k, v in _test_wildcard_values.items() if "{" + k + "}" in template}
 
     for dataset, group, merge_method in itertools.product(test_datasets, test_groups, test_merge_methods):
         prefix = f"{dataset}.{group}.{merge_method}"
-        for values in itertools.product(*_test_wildcard_values.values()):
-            wildcards = dict(zip(_test_wildcard_values.keys(), values))
+        for values in itertools.product(*used_wildcards.values()):
+            wildcards = dict(zip(used_wildcards.keys(), values))
             source = expand(template, dataset=dataset, group=group, merge_method=merge_method, prefix=prefix, **wildcards)[0]
             dest = Path("data/test_data") / prefix / expand(name_template, prefix="test", **wildcards)[0]
             _test_data_links[str(dest)] = source

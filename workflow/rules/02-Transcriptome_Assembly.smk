@@ -124,7 +124,16 @@ rule manual_filter:
         gtf = step02.path("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.gtf")
     log: step02.logs("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.log")
     benchmark: step02.benchmark("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.tsv")
-    shell: "zcat -f {input} | awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/' > {output} 2> {log}"
+    shell:
+        """
+        {{
+            echo "##gff-version 2"
+            echo "##source ENDome manual_filter ({wildcards.merge_method})"
+            echo "##input {input}"
+            echo "##date $(date +%Y-%m-%d)"
+            zcat -f {input} | awk '$1 ~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ && $7 ~ /^[+-]$/'
+        }} > {output} 2> {log}
+        """
 
 ### Isomatch rules
 rule download_isomatch:

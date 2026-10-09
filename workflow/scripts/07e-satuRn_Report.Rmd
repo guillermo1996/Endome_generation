@@ -1,0 +1,721 @@
+---
+title: ENDome Differential Usage
+subtitle: satuRn results across pseudobulk presets and satuRn profiles
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL / Cambridge - Version 1.0
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+always_allow_html: true
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+shhh <- suppressPackageStartupMessages
+
+shhh({
+  library(fs)
+  library(conflicted)
+  library(tidyverse)
+  library(SummarizedExperiment)
+})
+
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      out.width = "100%", fig.align = "center", dpi = 150,
+                      fig.height = 5.5, fig.width = 9.5)
+options(knitr.graphics.error = FALSE)
+```
+
+```{r setup-theme, echo = F, results = "asis"}
+## Custom sciRmdTheme with increased width.
+## Download from devtools::install_github("https://github.com/guillermo1996/grpSciRmdTheme")
+if(require(grpSciRmdTheme)){
+  grpSciRmdTheme::set.theme(
+    theme = "default",
+    color = NULL,
+    header.sticky = FALSE,
+    list.group.icon = "arrow",
+    font.family = "Arial",
+    font.color = "black",
+    header.color = "darkblue",
+    figure.perc = 100
+  )
+}
+
+## A bug in recent versions of KableExtra requires to load the HTML classes in
+## some circumstances.
+kableExtra::html_dependency_lightable()
+
+cat('
+<style type="text/css">
+table { caption-side: bottom }
+</style>')
+
+theme_endome <- function(base_size = 11, legend_pos = "top"){
+  bs <- base_size
+  theme_gray(base_size = bs) +
+    theme(
+      plot.title = element_text(size = bs * 1.27, face = "bold", hjust = 0, vjust = 1, margin = margin(b = bs/2)),
+      plot.subtitle = element_text(size = bs*0.82),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+      panel.background = element_rect(fill = "#FBFBFB", color = NA),
+      axis.text.x = ggplot2::element_text(color = "black", size = bs*0.82, angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(color = "black", size = bs*0.82),
+      axis.title.x = ggplot2::element_text(face = "bold", size = bs, margin = margin(t = 5)),
+      axis.title.y = ggplot2::element_text(face = "bold", size = bs, margin = margin(r = 10)),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "#444444", linewidth = 0.05, linetype = 2, inherit.blank = TRUE),
+      panel.grid.major.x = element_line(color = "#888888", linewidth = 0.05, linetype = 1, inherit.blank = TRUE),
+      legend.title = element_text(size = bs * 1.09),
+      legend.text = element_text(size = bs * 0.82),
+      legend.position  = legend_pos,
+      legend.key = element_rect(colour = "black", linewidth = 0.01),
+      strip.text.x = element_text(color = "black", face = "bold", size = bs*0.82),
+      strip.background = element_rect(color = "black", linewidth = 0.5, linetype = "solid"),
+      strip.text.y = element_text(color = "black", face = "bold", size = bs*0.82),
+      plot.margin = margin(0.5, 0.5, 0.2, 0.5, "cm")
+    )
+}
+```
+
+```{r snakemake-preamble, echo = FALSE}
+# Define Snakemake interactive parameters ----
+if (!exists("snakemake")) {
+  library(methods)
+  Snakemake <- setClass(
+    "Snakemake",
+    slots = c(
+      input = 'list',
+      output = 'list',
+      params = 'list',
+      wildcards = 'list',
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
+  )
+  ## dataset.group.merge_method folder created by the `test_data` rule (its
+  ## name is the prefix wildcard) and the ENDome to test. Every satuRn run linked
+  ## for that ENDome (test.<endome>.<pseudobulk>.<profile>[.satuRn].condition.*) is picked
+  ## up from the folder, with the pseudobulk of its preset
+  ## (test.<endome>.<pseudobulk>.pseudobulk.rds) for the usage plots. Absolute
+  ## paths, as knitr runs from the Rmd folder.
+  repo_dir <- "~/RytenLab-Research/40-ENDome_generation"
+  test_dir <- file.path(repo_dir, "data/test_data/Ebbert.control.st_ref")
+  test_orf_filter <- "ref_pc"
+  test_width <- "500"
+  test_txEnd <- "3p"
+  test_endome <- paste0(test_orf_filter, ".w", test_width, ".", test_txEnd)
+  test_pattern <- paste0("^test\\.", gsub(".", "\\.", test_endome, fixed = TRUE), "\\.(.+)\\.%s$")
+
+  snakemake <- Snakemake(
+    input = list(
+      results = list.files(test_dir, pattern = sprintf(test_pattern, "condition\\.tsv\\.gz"), full.names = TRUE),
+      diagnostics = list.files(test_dir, pattern = sprintf(test_pattern, "condition\\.diagnostics\\.tsv"), full.names = TRUE),
+      pseudobulk = list.files(test_dir, pattern = sprintf(test_pattern, "pseudobulk\\.rds"), full.names = TRUE),
+      sample_covariates = file.path(repo_dir, "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv")
+    ),
+    output = list(
+      html = file.path(test_dir, paste0("interactive.", test_endome, ".satuRn_report.html"))
+    ),
+    params = list(
+      ## The whole pseudobulk_settings and satuRn_settings blocks of the config:
+      ## only used to show the settings of the runs found in the file names
+      pseudobulk_settings = list(
+        default = list(effective_txs_mode = "fixed", min_effective_txs = 300, cell_type_level = "annotation_level_2"),
+        dynamic = list(effective_txs_mode = "mad", mad_below_median = 3, cell_type_level = "annotation_level_2")
+      ),
+      satuRn_settings = list(
+        default = list(contrasts = c("PDD-Control", "PD-Control", "PDD-PD"), min_cells = 5, p_value = "raw", alpha = 0.05,
+                       covariates_sample_col = "sample", group_col = "group")
+      ),
+      genes_of_interest = c("APP", "SNCA"),
+      top_genes = 6
+    ),
+    wildcards = list(
+      endome_name = paste0(basename(test_dir), ".", test_endome)
+    ),
+    threads = 4,
+    scriptdir = file.path(repo_dir, "workflow/scripts")
+  )
+}
+```
+
+# Introduction
+
+This report summarizes the differential usage results of `07c-satuRn_DTU.R` for a single ENDome, and compares the different **runs** that were produced for it. A run is a combination of a pseudobulk preset (`pseudobulk_settings`, how nuclei are selected and grouped in `07a`/`07b`) and a satuRn profile (`satuRn_settings`, how the fits are set up and tested in `07c`). Each run is read from the name of its result files (`<endome>.<pseudobulk>.<profile>.condition.tsv.gz` and `.condition.diagnostics.tsv`), so every table and figure has one tab per run, and new runs appear without changing the report.
+
+The report covers five questions:
+
+1. **Which fits ran.** How many region x cell type fits reached satuRn, with how many samples, genes and bins, and why the others were skipped.
+2. **How well calibrated are the tests.** The empirical null estimated by satuRn and the p-value distributions, which decide how much of the signal survives.
+3. **What is differentially used.** Significant genes per cell type and contrast, their effect sizes, and in which direction the usage moves along the gene (towards the upstream or the downstream ENDome end).
+4. **The genes of interest and the top hits,** with the bin usage of every sample.
+5. **How the runs agree.** The overlap and the rank concordance of every run with the others.
+
+A gene is significant when its stage-wise adjusted p-value from stageR (`stageR_gene`) is below the `alpha` of its satuRn profile, and a bin when its confirmation-stage p-value (`stageR_transcript`) is.
+
+# Hidden Section {.unlisted .unnumbered .hidden-heading .tabset .break4}
+
+## File paths {-}
+
+```{r script-paths}
+# Snakemake inputs
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+params <- snakemake@params
+wc <- snakemake@wildcards
+
+pseudobulk_settings <- params$pseudobulk_settings
+satuRn_settings <- params$satuRn_settings
+genes_of_interest <- unlist(params$genes_of_interest)
+top_genes <- params$top_genes %||% 6
+
+#' Run of an input file, read from its name
+#'
+#' Files are named <endome>.<run>.<suffix>, with <endome> ending in
+#' .w<width>.<txEnd> (e.g. Ebbert.control.st_ref.ref_pc.w500.3p.default.satuRn.condition.tsv.gz
+#' or test.ref_pc.w500.3p.dynamic.pseudobulk.rds).
+runFromPath <- function(path, suffix) {
+  if (length(path) == 0) return(stats::setNames(character(0), character(0)))
+  run <- sub(sprintf("^.*\\.w[^.]+\\.\\dp\\.(.+)\\.%s$", gsub(".", "\\.", suffix, fixed = TRUE)), "\\1", basename(path))
+  if (any(run == basename(path))) stop("Cannot read the run from: ", paste(path[run == basename(path)], collapse = ", "), call. = FALSE)
+  stats::setNames(path.expand(path), run)
+}
+
+## Runs: <pseudobulk preset>.<satuRn profile>, matched by name between results and diagnostics
+## (07c names its outputs <endome>.<pseudobulk>.<profile>.satuRn.condition.*: the
+## ".satuRn" tag is not part of the run)
+results_paths <- runFromPath(unlist(smk_inputs$results), "condition.tsv.gz")
+diagnostics_paths <- runFromPath(unlist(smk_inputs$diagnostics), "condition.diagnostics.tsv")
+names(results_paths) <- sub("\\.satuRn$", "", names(results_paths))
+names(diagnostics_paths) <- sub("\\.satuRn$", "", names(diagnostics_paths))
+pseudobulk_paths <- runFromPath(unlist(smk_inputs$pseudobulk), "pseudobulk.rds")
+covariates_path <- path.expand(smk_inputs$sample_covariates %||% smk_inputs$covariates)
+
+runs <- intersect(names(results_paths), names(diagnostics_paths))
+unpaired <- setdiff(union(names(results_paths), names(diagnostics_paths)), runs)
+if (length(unpaired) > 0) warning("Runs without both results and diagnostics (left out): ", paste(unpaired, collapse = ", "))
+if (length(runs) == 0) stop("No run has both results and diagnostics", call. = FALSE)
+
+run_info <- tibble::tibble(
+  run = runs,
+  pseudobulk = sub("\\..*$", "", runs),
+  profile = dplyr::if_else(grepl("\\.", runs), sub("^[^.]+\\.", "", runs), "-"),
+  label = paste0(pseudobulk, " / ", profile)
+)
+run_labels <- stats::setNames(run_info$label, run_info$run)
+
+### Truncation site of the ENDome: which end defines the bins
+tx_end <- stringr::str_extract(wc$endome_name, "(3p|5p)$")
+
+### Helper library
+lib_dir <- path.expand(file.path(snakemake@scriptdir, "../lib"))
+if(!dir.exists(lib_dir)) lib_dir <- path.expand(file.path(snakemake@scriptdir, "lib"))
+source(file.path(lib_dir, "hf-notebooks.R"))
+```
+
+```{r script-paths-table, echo = FALSE}
+dplyr::bind_rows(
+  tibble::tibble(Run = run_labels[runs], Input = "Results", Path = results_paths[runs]),
+  tibble::tibble(Run = run_labels[runs], Input = "Diagnostics", Path = diagnostics_paths[runs]),
+  tibble::tibble(Run = names(pseudobulk_paths), Input = "Pseudobulk", Path = unname(pseudobulk_paths)),
+  tibble::tibble(Run = "-", Input = "Sample covariates", Path = covariates_path)
+) %>%
+  renderTable(style = "md", caption = "Inputs of this report.")
+```
+
+## Helper functions {-}
+
+```{r helper-functions}
+fmtInt <- function(x) format(round(x), big.mark = ",", trim = TRUE, scientific = FALSE)
+fmtPct <- function(x, accuracy = 0.1) scales::percent(x, accuracy = accuracy)
+fmtP <- function(x) dplyr::if_else(is.na(x), "-", formatC(x, format = "g", digits = 3))
+
+#' Write one tab per run
+#'
+#' Must be called from a chunk with `results = "asis"`, right below a header
+#' with the `.tabset` class. `fun(run)` returns a ggplot, a kable or NULL.
+tabsetByRun <- function(fun, level = 3) {
+  for (r in runs) {
+    cat("\n\n", strrep("#", level), " ", run_labels[[r]], " {-}\n\n", sep = "")
+    out <- fun(r)
+    if (inherits(out, "ggplot")) {
+      print(out)
+    } else if (inherits(out, "knitr_kable") || inherits(out, "kableExtra")) {
+      cat(as.character(out))
+    } else if (!is.null(out)) {
+      print(out)
+    }
+    cat("\n\n")
+  }
+}
+
+#' Settings of a run: the pseudobulk preset and the satuRn profile, if in the config
+runSetting <- function(r, key, default = NULL) {
+  profile <- run_info$profile[run_info$run == r]
+  satuRn_settings[[profile]][[key]] %||% default
+}
+
+#' Index of the minimum, NA when every value is NA
+whichMinSafe <- function(x) if (all(is.na(x))) NA_integer_ else which.min(x)
+
+#' -log10 with a floor, so p = 0 can be drawn
+nlog10 <- function(p) -log10(pmax(p, 1e-300))
+```
+
+## Data loading {-}
+
+Results, diagnostics, gene-level summaries and gene symbols for every run.
+
+```{r load-data}
+## Results (one row per run x region x cell type x contrast x bin) and diagnostics (one row per fit x contrast)
+results <- lapply(runs, function(r) {
+  x <- readr::read_tsv(results_paths[[r]])
+  if ("regular_FDR" %in% colnames(x)) x <- dplyr::rename(x, FDR = regular_FDR)
+  x
+}) %>% stats::setNames(runs)
+diagnostics <- lapply(runs, function(r) readr::read_tsv(diagnostics_paths[[r]])) %>% stats::setNames(runs)
+alpha <- vapply(runs, function(r) as.numeric(runSetting(r, "alpha", 0.05)), numeric(1))
+
+## Gene symbols from org.Hs.eg.db when available; the gene id otherwise (e.g. novel MSTRG genes)
+all_gene_ids <- unique(unlist(lapply(results, function(x) x$gene_id)))
+gene_symbol <- stats::setNames(all_gene_ids, all_gene_ids)
+if (requireNamespace("org.Hs.eg.db", quietly = TRUE)) {
+  ens <- sub("\\..*$", "", all_gene_ids)
+  sym <- suppressMessages(AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, keys = unique(ens[grepl("^ENSG", ens)]),
+                                                keytype = "ENSEMBL", column = "SYMBOL", multiVals = "first"))
+  gene_symbol[] <- dplyr::coalesce(unname(sym[ens]), all_gene_ids)
+}
+
+## Gene-level summary of every test: smallest bin p-value, stageR gene p-value, bins
+genes <- lapply(runs, function(r) {
+  results[[r]] %>%
+    dplyr::group_by(region, celltype, contrast, gene_id) %>%
+    dplyr::summarise(
+      n_bins = dplyr::n(),
+      min_p = suppressWarnings(min(p_used, na.rm = TRUE)),
+      gene_qvalue = dplyr::first(gene_qvalue),
+      stageR_gene = dplyr::first(stageR_gene),
+      n_sig_bins = sum(stageR_transcript < alpha[[r]], na.rm = TRUE),
+      best_bin = isoform_id[whichMinSafe(p_used)][1],
+      best_estimate = estimates[whichMinSafe(p_used)][1],
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(min_p = dplyr::if_else(is.finite(min_p), min_p, NA_real_),
+                  significant = !is.na(stageR_gene) & stageR_gene < alpha[[r]],
+                  symbol = unname(gene_symbol[gene_id]))
+}) %>% stats::setNames(runs)
+
+## Shared cell type order (most bins tested first) and contrasts
+celltype_levels <- dplyr::bind_rows(results) %>% dplyr::count(celltype, sort = TRUE) %>% dplyr::pull(celltype)
+celltype_levels <- union(celltype_levels, unique(unlist(lapply(diagnostics, function(d) d$celltype))))
+contrast_levels <- unique(unlist(lapply(diagnostics, function(d) d$contrast)))
+
+## Sample groups and pseudobulks, for the usage plots
+samples <- readr::read_csv(covariates_path)
+samples <- samples %>%
+  dplyr::rename(sample_id = dplyr::all_of(runSetting(runs[1], "covariates_sample_col", "sample")),
+                group = dplyr::all_of(runSetting(runs[1], "group_col", "group"))) %>%
+  dplyr::select(sample_id, group)
+pseudobulks <- lapply(pseudobulk_paths, readRDS)
+```
+
+# Runs {.tabset .tabset-pills}
+
+The settings of each run: its pseudobulk preset and its satuRn profile, as given in the config. A preset or profile that is not in the config is reported as such (its results are still shown).
+
+```{r runs-table, results = "asis", echo = FALSE}
+tabsetByRun(level = 2, function(r) {
+  info <- run_info[run_info$run == r, ]
+  settingsTbl <- function(s, block) {
+    if (is.null(s)) return(tibble::tibble(Block = block, Setting = "-", Value = "not in the config"))
+    tibble::tibble(Block = block, Setting = names(s),
+                   Value = vapply(s, function(v) paste(unlist(v), collapse = ", "), character(1)))
+  }
+  dplyr::bind_rows(
+    settingsTbl(pseudobulk_settings[[info$pseudobulk]], paste0("pseudobulk: ", info$pseudobulk)),
+    settingsTbl(satuRn_settings[[info$profile]], paste0("satuRn: ", info$profile))
+  ) %>%
+    renderTable(style = "md", caption = sprintf("Settings of the `%s` run.", info$label))
+})
+```
+
+# Fits
+
+`07c` runs one fit per region x cell type, with every group of the contrasts, and tests the contrasts from it. A fit is skipped when a group has too few samples with enough nuclei, or when too few genes survive the `DRIMSeq::dmFilter` step.
+
+## Summary {.tabset .tabset-pills}
+
+```{r fits-summary, results = "asis", echo = FALSE}
+tabsetByRun(function(r) {
+  d <- diagnostics[[r]]
+  ok <- d %>% dplyr::filter(status == "ok")
+  sig <- genes[[r]] %>% dplyr::filter(significant)
+  tibble::tibble(
+    Metric = c("Tests (fit x contrast)", "Tests that ran", "Tests skipped",
+               "Region x cell types that ran", "Genes tested (sum over tests)", "Bins tested (sum over tests)",
+               "Tests using empirical p-values", "Tests using raw p-values",
+               "Significant genes (sum over tests)", "Distinct significant genes", "Significant bins (sum over tests)"),
+    Value = c(fmtInt(nrow(d)), fmtInt(nrow(ok)), fmtInt(sum(d$status != "ok")),
+              fmtInt(dplyr::n_distinct(paste(ok$region, ok$celltype))),
+              fmtInt(sum(ok$n_genes_tested, na.rm = TRUE)), fmtInt(sum(ok$n_bins_tested, na.rm = TRUE)),
+              fmtInt(sum(ok$p_type == "empirical", na.rm = TRUE)), fmtInt(sum(ok$p_type == "raw", na.rm = TRUE)),
+              fmtInt(nrow(sig)), fmtInt(dplyr::n_distinct(sig$gene_id)),
+              fmtInt(sum(results[[r]]$stageR_transcript < alpha[[r]], na.rm = TRUE)))
+  ) %>%
+    renderTable(style = "md", caption = sprintf("Fits of the `%s` run (alpha = %s).", run_labels[[r]], alpha[[r]]))
+})
+```
+
+## Skipped tests {.tabset .tabset-pills}
+
+```{r fits-skipped, results = "asis", echo = FALSE}
+tabsetByRun(function(r) {
+  d <- diagnostics[[r]] %>% dplyr::filter(status != "ok")
+  if (nrow(d) == 0) { cat("No test was skipped.\n\n"); return(NULL) }
+  d %>%
+    dplyr::mutate(reason = sub(" \\(.*$", "", status)) %>%
+    dplyr::count(region, reason, name = "tests") %>%
+    dplyr::rename(Region = region, Reason = reason, Tests = tests) %>%
+    renderTable(style = "md", caption = sprintf("Skipped tests of the `%s` run, by reason.", run_labels[[r]]))
+})
+```
+
+## Fits per region and cell type {.tabset .tabset-pills}
+
+One row per test that ran: the samples per group, the genes and bins tested, which p-values were used, the empirical null estimated by satuRn (`delta`, `sigma`), the fraction of bins with a raw p-value below 0.05, and the significant genes and bins.
+
+```{r fits-table, results = "asis", echo = FALSE}
+tabsetByRun(function(r) {
+  diagnostics[[r]] %>%
+    dplyr::filter(status == "ok") %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels),
+                  frac_raw_p05 = fmtPct(frac_raw_p05), null_delta = round(null_delta, 3), null_sigma = round(null_sigma, 3)) %>%
+    dplyr::arrange(region, celltype, contrast) %>%
+    dplyr::select(Region = region, `Cell type` = celltype, Contrast = contrast, `Samples per group` = group_sizes,
+                  Genes = n_genes_tested, Bins = n_bins_tested, `P-values` = p_type, Delta = null_delta,
+                  Sigma = null_sigma, `Raw p < 0.05` = frac_raw_p05, `Sig. genes` = n_sig_genes, `Sig. bins` = n_sig_bins) %>%
+    renderTable(style = "md", caption = sprintf("Tests of the `%s` run.", run_labels[[r]]))
+})
+```
+
+# Calibration
+
+satuRn computes, for every contrast with at least 500 bins, an *empirical* null: a normal distribution with mean `delta` and standard deviation `sigma` fitted to the bulk of the test statistics. With a well-calibrated test it is close to N(0, 1). A `sigma` above 1 means the raw statistics are more spread than the theory expects. The empirical p-values remove that excess, which protects against miscalibration but also removes a real, broad shift. Which p-values each test used is in the `P-values` column above (`p_value` in the satuRn profile).
+
+```{r calibration-sigma, results = "asis", echo = FALSE, fig.height = 7}
+cat("\n\n## Empirical null spread {.tabset .tabset-pills}\n\n")
+cat("`sigma` of every test with an empirical null. The dashed line is a perfectly calibrated test (sigma = 1).\n\n")
+tabsetByRun(function(r) {
+  d <- diagnostics[[r]] %>% dplyr::filter(status == "ok", !is.na(null_sigma))
+  if (nrow(d) == 0) { cat("No test has an empirical null (all have fewer than 500 bins).\n\n"); return(NULL) }
+  d %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)) %>%
+    ggplot(aes(x = null_sigma, y = forcats::fct_rev(celltype), colour = contrast, shape = region)) +
+    geom_vline(xintercept = 1, linetype = 2) +
+    geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
+    labs(x = "Empirical null sigma", y = NULL, colour = "Contrast", shape = "Region",
+         title = "Spread of the empirical null", subtitle = sprintf("Run: %s", run_labels[[r]])) +
+    theme_endome()
+})
+```
+
+```{r calibration-pvalues, results = "asis", echo = FALSE, fig.height = 6}
+cat("\n\n## P-value distributions {.tabset .tabset-pills}\n\n")
+cat("Raw and empirical bin p-values of every test, by contrast. Under no signal both are flat; an excess near 0 in the raw p-values that disappears in the empirical ones is what the empirical correction removes.\n\n")
+tabsetByRun(function(r) {
+  results[[r]] %>%
+    dplyr::select(contrast, Raw = pval, Empirical = empirical_pval) %>%
+    tidyr::pivot_longer(c(Raw, Empirical), names_to = "type", values_to = "p") %>%
+    dplyr::filter(!is.na(p)) %>%
+    dplyr::mutate(type = factor(type, levels = c("Raw", "Empirical"))) %>%
+    ggplot(aes(x = p)) +
+    geom_histogram(breaks = seq(0, 1, 0.025), fill = "#2166ac", colour = "white", linewidth = 0.1) +
+    facet_grid(type ~ contrast, scales = "free_y") +
+    labs(x = "Bin p-value", y = "Bins", title = "P-value distributions", subtitle = sprintf("Run: %s", run_labels[[r]])) +
+    theme_endome()
+})
+```
+
+# Differential usage
+
+## Significant genes per test {.tabset .tabset-pills}
+
+Number of significant genes per region, cell type and contrast. Grey tiles are tests that were skipped.
+
+```{r dtu-counts, results = "asis", echo = FALSE, fig.height = 7.5}
+tabsetByRun(function(r) {
+  diagnostics[[r]] %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels),
+                  n_sig_genes = dplyr::if_else(status == "ok", n_sig_genes, NA_real_)) %>%
+    ggplot(aes(x = contrast, y = forcats::fct_rev(celltype), fill = n_sig_genes)) +
+    geom_tile(colour = "white") +
+    geom_text(aes(label = dplyr::if_else(is.na(n_sig_genes), "", as.character(n_sig_genes))), size = 3) +
+    scale_fill_gradient(low = "#F7FBFF", high = "#08519C", na.value = "grey85", trans = "pseudo_log") +
+    facet_wrap(~ region) +
+    labs(x = NULL, y = NULL, fill = "Significant\ngenes", title = "Significant genes per test",
+         subtitle = sprintf("Run: %s | stageR gene p-value < %s", run_labels[[r]], alpha[[r]])) +
+    theme_endome() +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1))
+})
+```
+
+```{r dtu-swarm, results = "asis", echo = FALSE, fig.height = 9}
+cat("\n\n## Gene significance per cell type {.tabset .tabset-pills}\n\n")
+cat("Every tested gene, by cell type: the stage-wise adjusted gene p-value (stageR) on a -log10 scale, one panel per contrast and region. Coloured genes are significant; the labels mark the most significant gene of each cell type and the genes of interest.\n\n")
+tabsetByRun(function(r) {
+  g <- genes[[r]] %>%
+    dplyr::filter(!is.na(stageR_gene)) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = celltype_levels), y = nlog10(stageR_gene))
+  labels <- dplyr::bind_rows(
+    g %>% dplyr::filter(significant) %>% dplyr::group_by(region, contrast, celltype) %>% dplyr::slice_max(y, n = 1, with_ties = FALSE) %>% dplyr::ungroup(),
+    g %>% dplyr::filter(symbol %in% genes_of_interest, significant)
+  ) %>% dplyr::distinct()
+  ggplot(g, aes(x = celltype, y = y)) +
+    geom_hline(yintercept = -log10(alpha[[r]]), linetype = 2, colour = "red") +
+    geom_jitter(data = dplyr::filter(g, !significant), colour = "grey70", width = 0.25, height = 0, size = 0.5) +
+    geom_jitter(data = dplyr::filter(g, significant), colour = "#b2182b", width = 0.25, height = 0, size = 1.2) +
+    ggrepel::geom_text_repel(data = labels, aes(label = symbol), size = 2.6, max.overlaps = 30, min.segment.length = 0) +
+    facet_grid(contrast ~ region) +
+    labs(x = NULL, y = "-log10 stageR gene p-value", title = "Gene significance per cell type",
+         subtitle = sprintf("Run: %s | dashed line: alpha = %s", run_labels[[r]], alpha[[r]])) +
+    theme_endome() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+```
+
+## Significant genes {.tabset .tabset-pills}
+
+The significant genes of each run, most significant first (at most 200 rows). `Best bin` is the bin with the smallest p-value and `Log-odds` its satuRn estimate: the log-odds ratio of its usage between the two groups of the contrast (positive = more used in the first group).
+
+```{r dtu-table, results = "asis", echo = FALSE}
+tabsetByRun(function(r) {
+  sig <- genes[[r]] %>% dplyr::filter(significant)
+  if (nrow(sig) == 0) { cat("No significant gene in this run.\n\n"); return(NULL) }
+  sig %>%
+    dplyr::arrange(stageR_gene, min_p) %>%
+    dplyr::slice_head(n = 200) %>%
+    dplyr::transmute(Region = region, `Cell type` = celltype, Contrast = contrast, Gene = symbol, `Gene id` = gene_id,
+                     Bins = n_bins, `Sig. bins` = n_sig_bins, `stageR gene p` = fmtP(stageR_gene),
+                     `Best bin` = best_bin, `Min. p` = fmtP(min_p), `Log-odds` = round(best_estimate, 2)) %>%
+    renderTable(style = "md", caption = sprintf("Significant genes of the `%s` run.", run_labels[[r]]))
+})
+```
+
+```{r dtu-volcano, results = "asis", echo = FALSE, fig.height = 8}
+cat("\n\n## Effect sizes {.tabset .tabset-pills}\n\n")
+cat("Bin log-odds ratio against its p-value for the four cell types with most bins tested, one row per contrast. Red bins are significant after the stage-wise correction.\n\n")
+tabsetByRun(function(r) {
+  top_ct <- results[[r]] %>% dplyr::count(celltype, sort = TRUE) %>% dplyr::slice_head(n = 4) %>% dplyr::pull(celltype)
+  results[[r]] %>%
+    dplyr::filter(celltype %in% top_ct, !is.na(p_used)) %>%
+    dplyr::mutate(celltype = factor(celltype, levels = top_ct),
+                  significant = !is.na(stageR_transcript) & stageR_transcript < alpha[[r]]) %>%
+    dplyr::arrange(significant) %>%
+    ggplot(aes(x = estimates, y = nlog10(p_used), colour = significant)) +
+    geom_point(size = 0.5, alpha = 0.6) +
+    scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "#b2182b"), labels = c(`FALSE` = "Not significant", `TRUE` = "Significant")) +
+    facet_grid(contrast ~ celltype + region) +
+    guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+    labs(x = "Log-odds ratio (satuRn estimate)", y = "-log10 p-value", colour = NULL,
+         title = "Bin effect sizes", subtitle = sprintf("Run: %s", run_labels[[r]])) +
+    theme_endome()
+})
+```
+
+## Direction of the usage shift {.tabset .tabset-pills}
+
+```{r dtu-direction-text, results = "asis", echo = FALSE}
+end_label <- if (identical(tx_end, "5p")) "5' end (TSS)" else "3' end (polyadenylation site)"
+cat(sprintf(
+  "Where the significant bins sit within their gene, and whether they are more or less used in the first group of the contrast. Bins are ranked by their %s in the direction of transcription: the *most upstream* bin of a gene is %s, the *most downstream* %s, and the rest are *internal*.\n\n",
+  end_label,
+  if (identical(tx_end, "5p")) "the most distal start" else "the shortest 3' UTR (most proximal site)",
+  if (identical(tx_end, "5p")) "the most proximal start" else "the longest 3' UTR (most distal site)"))
+```
+
+```{r dtu-direction, results = "asis", echo = FALSE, fig.height = 6}
+tabsetByRun(function(r) {
+  x <- results[[r]]
+  if (!all(c("is_most_upstream_end", "is_most_downstream_end") %in% colnames(x))) {
+    cat("The results have no bin positions (the pseudobulk was built without the ENDome GTF).\n\n"); return(NULL)
+  }
+  x <- x %>%
+    dplyr::filter(!is.na(stageR_transcript), stageR_transcript < alpha[[r]]) %>%
+    dplyr::mutate(position = dplyr::case_when(is_most_upstream_end ~ "Most upstream",
+                                              is_most_downstream_end ~ "Most downstream",
+                                              TRUE ~ "Internal"),
+                  position = factor(position, levels = c("Most upstream", "Internal", "Most downstream")),
+                  direction = dplyr::if_else(estimates > 0, "More used in group 1", "Less used in group 1"))
+  if (nrow(x) == 0) { cat("No significant bin in this run.\n\n"); return(NULL) }
+  x %>%
+    ggplot(aes(x = position, fill = direction)) +
+    geom_bar(position = "dodge", colour = "black", linewidth = 0.2) +
+    scale_fill_manual(values = c(`More used in group 1` = "#b2182b", `Less used in group 1` = "#2166ac")) +
+    facet_wrap(~ contrast) +
+    labs(x = "Position of the bin's end within the gene", y = "Significant bins", fill = NULL,
+         title = "Direction of the usage shift", subtitle = sprintf("Run: %s | group 1 = first group of the contrast", run_labels[[r]])) +
+    theme_endome()
+})
+```
+
+# Bin usage
+
+Proportion of each gene's counts that falls in each of its bins, per pseudobulk sample (donor x region) and group, in the cell type and region where the gene is most significant. Only samples with at least the profile's `min_cells` nuclei are shown, as in the fits. Bins are labelled by the rank of their ENDome end (`E1` = most upstream) when the pseudobulk carries the bin positions.
+
+```{r usage-helpers}
+#' Per-sample bin usage of a set of (region, cell type, gene) tests, from the run's pseudobulk
+usageData <- function(r, tests) {
+  pb <- pseudobulks[[run_info$pseudobulk[run_info$run == r]]]
+  if (is.null(pb) || nrow(tests) == 0) return(NULL)
+  min_cells <- as.numeric(runSetting(r, "min_cells", 5))
+  cell_counts <- if (requireNamespace("dreamlet", quietly = TRUE)) dreamlet::cellCounts(pb) else NULL
+  rd <- as.data.frame(rowData(pb))
+  purrr::pmap_dfr(tests, function(region, celltype, gene_id, symbol, ...) {
+    bins <- rownames(pb)[rd$gene_id == gene_id]
+    if (length(bins) < 2 || !celltype %in% assayNames(pb)) return(NULL)
+    keep <- stringr::str_extract(colnames(pb), "[^_]+$") == region & colnames(pb) %in% samples$sample_id
+    if (!is.null(cell_counts)) keep <- keep & cell_counts[colnames(pb), celltype] >= min_cells
+    X <- as.matrix(assay(pb, celltype)[bins, keep, drop = FALSE])
+    X <- X[, colSums(X) > 0, drop = FALSE]
+    if (ncol(X) == 0) return(NULL)
+    bin_label <- if ("end_rank" %in% colnames(rd)) paste0("E", rd[bins, "end_rank"]) else bins
+    tibble::tibble(
+      panel = paste0(symbol, " - ", celltype, " - ", region),
+      bin = rep(bin_label, times = ncol(X)),
+      sample_id = rep(colnames(X), each = length(bins)),
+      usage = as.vector(sweep(X, 2, colSums(X), "/"))
+    ) %>% dplyr::left_join(samples, by = "sample_id")
+  })
+}
+
+usagePlot <- function(u, title, subtitle) {
+  if (is.null(u) || nrow(u) == 0) return(NULL)
+  ggplot(u, aes(x = bin, y = usage, fill = group)) +
+    geom_boxplot(outlier.shape = NA, linewidth = 0.3, alpha = 0.7) +
+    geom_point(position = position_jitterdodge(jitter.width = 0.15), size = 0.6, alpha = 0.6) +
+    scale_y_continuous(labels = scales::percent) +
+    facet_wrap(~ panel, scales = "free_x") +
+    labs(x = "Bin", y = "Share of the gene's counts", fill = "Group", title = title, subtitle = subtitle) +
+    theme_endome()
+}
+```
+
+```{r usage-goi, results = "asis", echo = FALSE, fig.height = 5.5}
+cat("\n\n## Genes of interest {.tabset .tabset-pills}\n\n")
+cat(sprintf("Genes of interest: %s. The table lists every test of these genes; the figure shows their usage in the test where each is most significant.\n\n",
+            paste(genes_of_interest, collapse = ", ")))
+tabsetByRun(function(r) {
+  g <- genes[[r]] %>% dplyr::filter(symbol %in% genes_of_interest)
+  if (nrow(g) == 0) { cat("None of the genes of interest was tested in this run.\n\n"); return(NULL) }
+  ranks <- genes[[r]] %>%
+    dplyr::group_by(region, celltype, contrast) %>%
+    dplyr::mutate(rank = rank(min_p, ties.method = "min", na.last = "keep"), n_genes = dplyr::n()) %>%
+    dplyr::ungroup() %>% dplyr::select(region, celltype, contrast, gene_id, rank, n_genes)
+  tbl <- g %>%
+    dplyr::left_join(ranks, by = c("region", "celltype", "contrast", "gene_id")) %>%
+    dplyr::arrange(symbol, stageR_gene, min_p) %>%
+    dplyr::transmute(Gene = symbol, Region = region, `Cell type` = celltype, Contrast = contrast,
+                     `stageR gene p` = fmtP(stageR_gene), `Min. p` = fmtP(min_p),
+                     Rank = paste0(rank, " / ", n_genes), `Sig. bins` = n_sig_bins, Significant = significant) %>%
+    renderTable(style = "md", caption = sprintf("Genes of interest in the `%s` run.", run_labels[[r]]))
+  cat(as.character(tbl))
+  best <- g %>% dplyr::group_by(symbol) %>% dplyr::slice_min(min_p, n = 1, with_ties = FALSE) %>% dplyr::ungroup()
+  usagePlot(usageData(r, best %>% dplyr::select(region, celltype, gene_id, symbol)),
+            "Bin usage of the genes of interest", sprintf("Run: %s | test with the smallest p-value of each gene", run_labels[[r]]))
+})
+```
+
+```{r usage-top, results = "asis", echo = FALSE, fig.height = 7}
+cat(sprintf("\n\n## Top %s genes {.tabset .tabset-pills}\n\n", top_genes))
+cat("The most significant tests of each run (by stageR gene p-value, then smallest bin p-value), one gene per test.\n\n")
+tabsetByRun(function(r) {
+  top <- genes[[r]] %>%
+    dplyr::filter(!is.na(min_p)) %>%
+    dplyr::arrange(stageR_gene, min_p) %>%
+    dplyr::distinct(gene_id, .keep_all = TRUE) %>%
+    dplyr::slice_head(n = top_genes)
+  usagePlot(usageData(r, top %>% dplyr::select(region, celltype, gene_id, symbol)),
+            "Bin usage of the top genes", sprintf("Run: %s", run_labels[[r]]))
+})
+```
+
+# Comparison between runs
+
+How each run agrees with the others, over the tests (region x cell type x contrast) and genes that both ran. The rank concordance uses the smallest bin p-value of each gene, which is available whatever the p-values used for the significance calls.
+
+## Overlap {.tabset .tabset-pills}
+
+```{r compare-table, results = "asis", echo = FALSE}
+keys <- c("region", "celltype", "contrast", "gene_id")
+tabsetByRun(function(r) {
+  others <- setdiff(runs, r)
+  if (length(others) == 0) { cat("Only one run: nothing to compare.\n\n"); return(NULL) }
+  purrr::map_dfr(others, function(o) {
+    j <- dplyr::inner_join(genes[[r]], genes[[o]], by = keys, suffix = c("_r", "_o"))
+    sig_r <- sum(genes[[r]]$significant); sig_o <- sum(genes[[o]]$significant)
+    both <- sum(j$significant_r & j$significant_o)
+    tibble::tibble(
+      `Compared with` = run_labels[[o]],
+      `Shared tests` = dplyr::n_distinct(paste(j$region, j$celltype, j$contrast)),
+      `Shared genes tested` = nrow(j),
+      `Sig. here` = sig_r, `Sig. there` = sig_o, `Sig. in both` = both,
+      Jaccard = round(both / max(1, sig_r + sig_o - both), 3),
+      `Spearman (min. p)` = round(suppressWarnings(stats::cor(j$min_p_r, j$min_p_o, method = "spearman", use = "complete.obs")), 3)
+    )
+  }) %>%
+    renderTable(style = "md", caption = sprintf("Agreement of the `%s` run with the other runs (significant gene x test pairs).", run_labels[[r]]))
+})
+```
+
+```{r compare-scatter, results = "asis", echo = FALSE, fig.height = 6}
+cat("\n\n## Gene significance against the other runs {.tabset .tabset-pills}\n\n")
+cat("Smallest bin p-value of every gene tested in both runs (-log10), this run on the x axis, coloured by where the gene is significant.\n\n")
+tabsetByRun(function(r) {
+  others <- setdiff(runs, r)
+  if (length(others) == 0) { cat("Only one run: nothing to compare.\n\n"); return(NULL) }
+  purrr::map_dfr(others, function(o) {
+    dplyr::inner_join(genes[[r]], genes[[o]], by = keys, suffix = c("_r", "_o")) %>%
+      dplyr::mutate(other = run_labels[[o]])
+  }) %>%
+    dplyr::filter(!is.na(min_p_r), !is.na(min_p_o)) %>%
+    dplyr::mutate(status = factor(dplyr::case_when(significant_r & significant_o ~ "Both",
+                                                   significant_r ~ "This run only",
+                                                   significant_o ~ "Other run only",
+                                                   TRUE ~ "Neither"),
+                                  levels = c("Neither", "Other run only", "This run only", "Both"))) %>%
+    dplyr::arrange(status) %>%
+    ggplot(aes(x = nlog10(min_p_r), y = nlog10(min_p_o), colour = status)) +
+    geom_abline(slope = 1, intercept = 0, linetype = 2) +
+    geom_point(size = 0.6, alpha = 0.6) +
+    scale_colour_manual(values = c(Neither = "grey75", `Other run only` = "#ef8a62", `This run only` = "#67a9cf", Both = "#b2182b")) +
+    facet_wrap(~ other) +
+    guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+    labs(x = "-log10 min. bin p-value (this run)", y = "-log10 min. bin p-value (other run)", colour = "Significant in",
+         title = "Gene significance across runs", subtitle = sprintf("Run: %s", run_labels[[r]])) +
+    theme_endome()
+})
+```
+
+# Session info {.unlisted .unnumbered}
+
+```{r session-info, echo = FALSE}
+sessionInfo()
+```
