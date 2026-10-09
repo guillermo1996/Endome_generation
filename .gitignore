@@ -43,6 +43,7 @@ workflow/scripts/*.html
 /.claude/
 /test/
 /workflow/scripts/tests
+/workflow/scripts/utils
 /docs/satuRn
 /docs/*.md
 *.gpg

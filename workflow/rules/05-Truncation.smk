@@ -42,7 +42,7 @@ rule txendcutr_truncation:
     params:
         mergeDist = txendcutr_settings["merge_distance"],
         genome = txendcutr_settings["genome"],
-        script = lambda wc: "05a-txendcutr.R" if wc.width.isdigit() else "tests/T05a-txendcutr_UTR.R"
+        script = lambda wc: "05a-txendcutr.R" if wc.width.isdigit() else "05a-txendcutr_UTR.R"
     conda: "../envs/r.yaml"
     threads: 12
     script: "../scripts/{params.script}" # Modified `txendcutr.R` script to include my version of the package
