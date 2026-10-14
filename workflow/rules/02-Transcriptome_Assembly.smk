@@ -2,9 +2,6 @@
 ## Transcriptome Assembly
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
@@ -31,11 +28,12 @@ isomatch_tar_url = f"https://github.com/zhengxinchang/isomatch/releases/download
 def get_input_bam(wildcards):
     if config.get("use_toy_data", False):
         return step01.path(f"Samtools_subsample/{wildcards.sample}_sorted.bam")
+    
+    sample = get_input_sample(wildcards)
+    if sample["file_type"] == "bam":
+        return sample_path
+    return step01.path(f"Samtools_sort/{wildcards.sample}_sorted.bam")
 
-    if wildcards.dataset == "Ebbert":
-        return step01.path(f"Samtools_sort/{wildcards.sample}_sorted.bam")
-    elif wildcards.dataset == "Wood":
-        return Path(config["input_dir_wood"]) / wildcards.sample / "Mapping" / f"{wildcards.sample}_minimap.bam"
 
 def get_filter_input(wildcards):
     if wildcards.merge_method == "ref":

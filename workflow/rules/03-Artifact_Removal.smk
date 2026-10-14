@@ -2,9 +2,6 @@
 ## Artifact Removal
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
@@ -111,10 +108,6 @@ rule pigeon_filter:
 
 register_test_data_link(rules.pigeon_filter.output.filtered_gtf)
 register_test_data_link(rules.pigeon_filter.output.pigeon_summary)
-
-## Debug: benchmark loading time
-_log(f"\t+ {step03.name} imported in {time.perf_counter() - _start_time:.3f}s")
-
 
 # rule download_sqanti3:
 #     output:

@@ -1,0 +1,215 @@
+
+############################################################
+#              PART B - PIPELINE STEP CONFIGURATIONS
+#
+# Steps follow the order of execution:
+# 01 Alignment → 02 Assembly → 03 Artifact Removal → 04 ORF Identification →
+# 05 Truncation → 06 UTR Quantification → 07 UTR Usage
+############################################################
+
+############################
+# 01. ALIGNMENT
+############################
+## Selected by: minimap2_preset
+minimap2_settings:
+  default:
+    minimap2_kmer:  14
+    minimap2_flags: "-ax splice -uf --MD --secondary=no"
+  k15:
+    minimap2_kmer:  15
+    minimap2_flags: "-ax splice -uf --MD --secondary=no"
+
+############################
+# 02. TRANSCRIPTOME ASSEMBLY
+############################
+## isomatch release, downloaded into tools/isomatch-{version}/
+isomatch_version: "v0.6.0"
+
+## Selected by: stringtie_assembly_preset
+###   "unguided" = run without reference GTF
+###   "guided"   = run with reference GTF (-G flag)
+stringtie_assembly_settings:
+  unguided:
+    assembly_guided: False
+    assembly_flags: "-L --rf"
+  guided:
+    assembly_guided: True
+    assembly_flags: "-L --rf"
+
+## Selected by: merge_preset (list)
+### Preset names starting with "st" merge with StringTie, those starting with
+### "iso" merge with isomatch.
+###   use_reference  add `ref_annotation` as one more input to the merge
+###   merge_flags    extra flags for the merge command
+merge_settings:
+  st_ref:
+    use_reference: True
+    merge_flags: "-L"
+  st:
+    use_reference: False
+    merge_flags: "-L"
+  iso_ref:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+    min_sample_cnt: 0
+  iso_ref_lean:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 0.0
+    min_tpm: 0.0
+    min_sample_cnt: 0
+  iso:
+    use_reference: False
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+  iso_ref_long:
+    use_reference: True
+    merge_flags: "--tss-policy longer --tes-policy longer"
+    min_fpkm: 1.0
+    min_tpm: 1.0
+  iso_ref_bed:
+    use_reference: True
+    merge_flags: ""
+    min_fpkm: 1.0
+    min_tpm: 1.0
+    use_bed_files: True
+
+## Selected by: gffcompare_preset
+gffcompare_settings:
+  default:
+    gffcompare_flags: "-T"
+  strict: # Tighter exon/intron boundary tolerances
+    gffcompare_flags: "--strict-match -e 50 -d 50 -T"
+
+############################
+# 03. ARTIFACT REMOVAL
+############################
+## Selected by: pigeon_preset
+pigeon_settings:
+  default: {}
+
+############################
+# 04. ORF IDENTIFICATION
+############################
+## Selected by: orfannotate_preset
+orfannotate_settings:
+  default:
+    version: "v1.0.0"
+    gffread_clean: False
+
+## Selected by: orf_filter_preset (list)
+### ORF filter presets: which transcripts 04b keeps. Every list key takes ["all"]
+### to disable it. ref_isoform and structural_category come from pigeon (via 04a).
+###   valid_ref_gene_type        biotype of the reference gene (NA without a reference gene)
+###   valid_ref_tx_type          biotype of the reference transcript (FSM only, NA otherwise)
+###   valid_orfannotate_type     ORFannotate coding class ("coding" / "noncoding")
+###   valid_structural_category  pigeon structural category
+###   ref_isoform_filter         "TRUE"/"FALSE" keeps only (non-)reference isoforms
+###                              (pigeon FSM, alternative ends included); "" = no filter
+orf_filter_settings:
+  ref_pc:                      # Reference protein-coding isoforms (alternative 5'/3' ends included) with a coding ORF
+    valid_ref_gene_type:       ["protein_coding"]
+    valid_ref_tx_type:         ["protein_coding"]
+    valid_orfannotate_type:    ["coding"]
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        "TRUE"
+  pc_novel:                     # Every coding transcript except fragments (ISM): new genes and isoforms kept
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["coding"]
+    valid_structural_category: ["full-splice_match", "novel_in_catalog", "novel_not_in_catalog", "antisense", "genic", "genic_intron", "intergenic", "fusion"]
+    ref_isoform_filter:        ""
+  pc_all:                      # Every transcript with a coding ORF, any category
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["coding"]
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        ""
+  all:                         # No filtering (debugging)
+    valid_ref_gene_type:       ["all"]
+    valid_ref_tx_type:         ["all"]
+    valid_orfannotate_type:    ["all"]
+    valid_structural_category: ["all"]
+    ref_isoform_filter:        ""
+
+############################
+# 05. TRUNCATION
+############################
+## Selected by: txendcutr_preset
+txendcutr_settings:
+  default:
+    merge_distance: 200 # Max distance (bp) between truncation sites to merge
+    genome: "hg38"
+
+## Selected by: mmseqs2_preset
+mmseqs2_settings:
+  default:
+    sensitivity: 7.5
+    evalue: 10000
+    max_seqs: 5000
+    max_accept: 100000
+    max_rejected: 100000
+    alignment_mode: 3
+    coverage: 0
+    cov_mode: 0
+    restrict_to_gene: TRUE # Drop cross-gene hits before storing
+
+## No preset key: the "default" entry is always used
+scoring_settings:
+  default:
+    protein_metric: "bsr_max" # bsr_max | bsr_min | bsr_mixed | fident
+    length_scaling: "ratio" # ratio | canberra
+    member_weights: "uniform"
+    compute_sim_pid: FALSE # redundant with bsr calculation
+    component_weights:
+      protein: 1.0
+      cds_len: 0.1
+      start_codon: 0.2
+      stop_codon: 0.2
+      nmd: 0.4
+
+############################
+# 06. UTR QUANTIFICATION
+############################
+## Selected by: scUTRquant_preset
+###   version  scUTRquant release, downloaded into tools/scUTRquant-{version}/
+scUTRquant_settings:
+  default:
+    version: "v0.5.1"
+    genome: "hg38"
+
+############################
+# 07. UTR USAGE
+############################
+## Selected by: pseudobulk_preset (list)
+pseudobulk_settings:
+  default: # Txs threshold fixed for every cell type
+    effective_txs_mode: "fixed"
+    min_effective_txs: 300
+    cell_type_level: "annotation_level_2"
+  dynamic: # Txs threshold per cell type based on Median Absolute Deviation (MAD)
+    effective_txs_mode: "mad"
+    mad_below_median: 3 # how many MADs below the median to remove
+    cell_type_level: "annotation_level_2"
+
+## Selected by: satuRn_preset (list)
+### Statistical parameters of the test only. The dataset, regions, contrasts
+### and covariates are set in "sc_dataset" (section 04). "raw" reuses "default"
+### through a YAML anchor and only changes the p-value type.
+satuRn_settings:
+  default: &satuRn_default
+    min_cells: 5
+    min_genes: 10
+    min_samples_per_group: 3
+    dmfilter:
+      min_samps_gene_prop: 0.75
+      min_gene_expr: 10
+      min_feature_expr: 10
+    p_value: "empirical" # raw | empirical | none (skip stageR)
+    alpha: 0.05
+  raw:
+    <<: *satuRn_default
+    p_value: "raw"

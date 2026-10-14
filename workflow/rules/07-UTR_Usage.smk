@@ -2,9 +2,6 @@
 ## 06b - UTR usage analysis
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: hash suffix, parameters.yaml rule, path helpers.

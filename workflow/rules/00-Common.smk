@@ -2,9 +2,6 @@
 ## 00 - Common: shared settings, helpers and step registration
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 import pandas as pd
 import re
 import json
@@ -37,57 +34,54 @@ benchmark_path = config["benchmark_path"]
 ### Settings of every registered step, filled in by register_step()
 global_params = {}
 global_extra_params = {}
+registered_steps = []
+
+################################################################################
+## Load the long-read sample sheet
+################################################################################
+endome_samples = pd.read_csv(config["input_endome_samples"], sep = "\t", dtype = str)
+
+### Ensure all data is provided
+_required_cols = ["dataset", "group", "sample_id", "file_type", "path"]
+_missing_cols = set(_required_cols) - set(endome_samples.columns)
+if _missing_cols:
+    raise ValueError(f"Missing columns in {config['input_endome_samples']}: {sorted(_missing_cols)}")
+
+### Ensure data is valid
+_selected = endome_samples[endome_samples["dataset"].isin(config.get("input_dataset", []))]
+if not _selected["file_type"].isin(["fastq", "bam"]).all():
+    raise ValueError(f"file_type must be `fastq` or `bam` for every sample of the selected dataset")
+if _selected["path"].isna().any():
+    raise ValueError(f"Samples without a path: {_selected[_selected["path"].isna()]['sample_id'].tolist()}")
+if _selected.duplicated(["dataset", "sample_id"]).any():
+    raise ValueError(f"sample_id must be unique within a dataset")
+
 
 ################################################################################
 ## Helper Functions - For Analysis
 ################################################################################
 def generate_input_samples_df(dataset: str, group: str) -> pd.DataFrame:
-    """Build the sample sheet for one dataset × group combination.
-
+    """Samples of one dataset x group combination from the sample sheet.
+    
     Args:
-        dataset (str): Dataset name, e.g. ``"Ebbert"`` or ``"Wood"``.
-        group (str): Sample group: ``"control"``, ``"case"`` or
-            ``"control_case"`` (which expands to both).
+        dataset (str): Dataset name, as in the ``dataset`` columns.
+        group (str): Sample group
 
     Returns:
-        pd.DataFrame: One row per sample with columns ``sample_id``, ``group``
-        and ``path``. Empty if the dataset/group has no configured samples.
+        pd.DataFrame: One row per sample with columns ``sample_id``, ``group``, ``file_type`` and ``path``.
     """
-    endome_samples = []
-
-    def add_to_endome(samples: list, sample_id: str, sample_group: str, sample_path: Path) -> None:
-        samples.append({
-            "sample_id": sample_id,
-            "group": sample_group,
-            "path": sample_path
-        })
-
-    # Experimental groups to use
     group_list = ["control", "case"] if group == "control_case" else [group]
+    selected = endome_samples[(endome_samples["dataset"] == dataset) & (endome_samples["group"].isin(group_list))]
+    return selected[["sample_id", "group", "file_type", "path"]].reset_index(drop = True)
 
-    # Logic for the Ebbert dataset
-    if dataset == "Ebbert":
-        for input_group in group_list:
-            ebbert_samples = config.get(f"{input_group}_samples_ebbert", [])
+def get_input_sample(wildcards) -> pd.Series:
+    samples_df = generate_input_samples_df(wildcards.dataset, wildcards.group)
+    return samples_df[samples_df["sample_id"] == wildcards.sample].iloc[0]
 
-            for sample_id in ebbert_samples:
-                sample_file = f"{sample_id}.fastq.gz"
-                sample_path = Path(config["input_dir_ebbert"]) / sample_file
-
-                add_to_endome(endome_samples, sample_id, input_group, sample_path)
-    elif dataset == "Wood":
-        for input_group in group_list:
-            wood_samples = config.get(f"{input_group}_samples_wood", [])
-
-            for sample_id in wood_samples:
-                sample_file = f"{sample_id}.fastq"
-                sample_path = Path(config["input_dir_wood"]) / sample_id / "Pychopper" / f"{sample_id}_full_length_reads.fastq"
-
-                add_to_endome(endome_samples, sample_id, input_group, sample_path)
-    
-    # Return the data.frame
-    endome_samples_df = pd.DataFrame(endome_samples)
-    return endome_samples_df
+def generate_param_files():
+    """List the ``parameters.yaml`` targets of every registered step to request in ``rule all``
+    """
+    return [target for step in registered_steps for target in expand(step.path("parameters.yaml"), dataset=input_dataset, group=input_group)]
 
 ################################################################################
 ## Helper Functions - For Snakemake
@@ -318,6 +312,7 @@ def register_step(name: str, params: dict, extra_params: dict = None, save_param
 
     if save_params:
         create_save_params_rule(step)
+        registered_steps.append(step)
 
     return step
 
@@ -442,7 +437,3 @@ rule test_data:
             # Relative link, so it works from any mount of the repo (/home/drihome/... or /home/...)
             dst.symlink_to(os.path.relpath(src, dst.parent))
             print(f"[test_data] linked {target} -> {src}", file=stderr)
-
-
-## Debug: benchmark loading time
-_log(f"\t+ 00-Common imported in {time.perf_counter() - _start_time:.3f}s")

@@ -1,493 +1,108 @@
 ##########################################################
-# Main config file for Endome generation pipeline
-#
-# PRESET PATTERN
-# ---------------
-# Each tool has an active "<tool>_preset" key that selects a named entry from
-# the corresponding "<tool>_settings" block. To switch configurations, change
-# only the preset key. Feel free to add custom presets that match your needs.
-#
-# (Note: these are pipeline-level parameter settings, distinct from Snakemake's
-# own execution profiles in workflow/profiles/, which control runtime/resources.)
-#
-# Example: to switch ORF filtering, simply change "orf_filter_preset": pc → all
-#
-#
-# COMBINATORIAL PARAMETERS 
-# ----------------------------
-# Four parameters accept lists and drive a combinatorial expansion:
-#
-#   input_dataset  — which dataset(s) to process [Wood/Ebbert/Gencode]
-#   input_group    — which sample group(s) within each dataset [case/control/both]
-#   trunc_site     — truncation site(s) to apply [3'/5']
-#   trunc_width    — truncation window width(s) in bp [integer > 150]
-#
-# The pipeline runs once for every combination of these values.
-#
-# Example — 4 runs total:
-#   input_dataset: ["Wood", "Ebbert"]
-#   input_group:   ["control"]
-#   trunc_site:    ["3p", "5p"]
-#   trunc_width:   [500]
-#
-# All other parameters apply uniformly to every run.
-##########################################################
+# Main config file for the ENDome generation pipeline
 
-# Folder/file structure:
-#   {main_output_path}/
-#   └── {input_dataset}.{input_group}/       # one folder per dataset × group combination
-#       ├── 01-Alignment[-{hash}]/
-#       ├── ...
-#       └── 05-Truncation[-{hash}]/
-#           ├── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_1}.w{trunc_width}.gtf   # trunc_site × trunc_width
-#           └── {input_dataset}.{input_group}.{orf_filter_preset}.{trunc_site_2}.w{trunc_width}.gtf   # expand into files, not folders
+##########################################################
+# PART A - RUN CONFIGURATION
 
 ############################
-# 01. GENERAL RUN SETTINGS
+# 01. WHAT TO RUN
+############################
+
+## ENDome generation steps
+input_dataset: ["Ebbert"] # Long-read dataset: Wood | Ebbert
+input_group: ["control"] # Sample group within the dataset: control | case | control_case
+trunc_site: ["3p", "5p"] # Truncation site: 3p | 5p
+trunc_width: [500, 300] # Window size (bp) around truncation site
+
+merge_preset: ["st_ref"] # Transcript merging: st_* = StringTie, iso_* = isomatch
+orf_filter_preset: ["ref_pc", "pc_novel"] # Transcripts kept after ORF identifications
+
+## UTR Usage steps
+pseudobulk_preset: ["default", "dynamic"]
+satuRn_preset: ["default", "raw"]
+
+############################
+# 03. PATHS
 ############################
 
 ## Reference genome and annotation (GENCODE GRCh38 / v48)
 ref_genome: "/home/MinaRyten/Guillermo/Resources/Genome/GRCh38.primary_assembly.genome.fa"
 ref_annotation: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
 
-## 3'/5' truncation parameters
-trunc_site:  ["3p", "5p"] # Truncation site: "3p" or "5p"
-trunc_width: [500, 300] # Window size (bp) around truncation site
-input_dataset: ["Wood"] # Dataset to employ to generate the ENDome
-merge_preset: ["st_ref", "iso_ref"] # ["st_ref", "iso_ref", "iso_ref_lean"]
-orf_filter_preset: ["ref_pc", "pc_novel"]
-pseudobulk_preset: ["default", "dynamic"]
-satuRn_preset: ["default", "raw"]
-
-
 ## Output directories
 main_output_path: "debug_results"
 log_path: ".logs"
 benchmark_path: ".benchmarks"
 
-## Output folder hashing
-### If True, each step's output folder gets a 5-character hash suffix derived
-### from the parameters used in that step and in every step before it, e.g.
-### "01-Alignment-a3f9c" instead of "01-Alignment". The hash is cumulative:
-### changing a parameter of one step also renames the folders of all later
-### steps. Preset names are ignored, so renaming a preset keeps the hash.
-###
-### Set to True for safe iterative experimentation, as changing any tool
-### parameter will produce a new folder, leaving prior results intact. Set to
-### False for human readable folder names, but pipeline might NOT detect
-### parameter changes within a step. Recommended for finalized and fixed
-### configurations.
-use_hash: True
-
-## Parameter provenance dumps
-### Every step writes a "parameters.yaml" file recording the resolved settings
-### of that step and all previous ones. This flag controls how often it is
-### (re)written:
-###
-### True: every snakemake invocation rewrites all "parameters.yaml" files, so
-### they always carry the timestamp of the latest run. Note that they then show
-### up as jobs in every `snakemake -n` dry-run.
-### False: a "parameters.yaml" is only written when it is missing or when the
-### recorded parameters have actually changed. Recommended.
-always_save_params: False
-
 ############################
-# 02. INPUT DATASETS
+# 04. INPUT DATASETS
 ############################
 
-## Input dataset and samples to generate the ENDome
-input_group: ["control"] # Sample group to employ to generate the ENDome
-input_scUTRquant_samples: "data/Hardy_snRNAseq/sample_sheet.csv"
-
-### Ebbert (2023) long-read public data
-input_dir_ebbert: "/home/MinaRyten/Emil/public_data/long-read/Ebbert_2023"
-
-control_samples_ebbert:
-  - sample_1131_PAM44580
-  - sample_1304_PAM44487
-  - sample_1271_PAM44815
-  - sample_5356_PAM42933
-  - sample_1163_PAM44604
-  - sample_1092_PAM41667
-
-case_samples_ebbert:
-  - sample_579_PAG75663
-  - sample_1218_PAM43779
-  - sample_5295_PAG77944
-  - sample_5292_PAG75292
-  - sample_1186_PAM43869
-  - sample_1291_PAG71816
-
-### Wood Nanopore data
-input_dir_wood: "/home/MinaRyten/hannah/Nanopore_Analysis"
-
-control_samples_wood:
-  - LIB01_PDC029_F_CTX
-  - LIB03_C072_F_CTX
-  - LIB05_PDC085_F_CTX
-  - LIB08_PDC023_F_CTX
-  - LIB10_C046_F_CTX
-  - LIB11_C049_F_CTX
-  - LIB14_C036_SN
-  - LIB15_PDC029_SN
-  - LIB17_C074_SN
-  - LIB20_C043_SN
-  - LIB21_C049_SN
-  - LIB24_C075_SN
-
-case_samples_wood:
-  - LIB02_PD0612_F_CTX
-  - LIB04_PD0822_F_CTX
-  - LIB06_PD0590_F_CTX
-  - LIB07_PD0913_F_CTX
-  - LIB09_PD0109_F_CTX
-  - LIB12_PD0687_F_CTX
-  - LIB13_PD0945_SN
-  - LIB16_PD0917_SN
-  - LIB18_PD0086_SN
-  - LIB19_PD0590_SN
-  - LIB22_PD0822_SN
-  - LIB23_PD0596_SN
+## Long-read samples used to generate the ENDome (steps 01-05)
+### Tab-separated file with one row per sample and the columns:
+###   dataset    dataset name, as used in "input_dataset"
+###   group      sample group within the dataset: control | case
+###   sample_id  unique sample name within the dataset
+###   file_type  fastq = raw reads, the sample starts at 01 Alignment
+###              bam   = aligned and coordinate-sorted reads, the sample skips to 02 Assembly
+###   path       path to the FASTQ (.fastq / .fastq.gz) or BAM file
+input_endome_samples: "data/endome_input_samples.tsv"
 
 
-############################################################
-#              PIPELINE STEP CONFIGURATIONS
-#
-# Steps follow the order of execution: 
-# 01 Alignment → 02 Assembly → 03 Artifact Removal → 04 ORF Identification → 05 Truncation → 06 Evaluation
-############################################################
+## Single-nucleus dataset on which the ENDome is quantified (step 06) and
+## tested for differential UTR usage (step 07)
+sc_dataset:
+  # Step 06: scUTRquant sample sheet and config template
+  sample_sheet: "data/Hardy_snRNAseq/sample_sheet.csv"
+  scUTRquant_config_template: "config/scUTRquant_config.yaml"
+
+  # Step 07: nucleus annotations, sample metadata and sample covariates
+  annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
+  sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
+  sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
+  exclude_samples: ["gosot"]
+
+  # Step 07: what to compare
+  regions: ["ACG", "IPL"]
+  celltypes: null # null = every cell type available
+  contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
+  covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
 
 ############################
-# 00. TESTING / DEV MODE
+# 02. TOOL PRESETS
 ############################
-# Set debug: True to print load-time / per-step timing instrumentation to
-# stderr. Leave False for normal (quiet) runs.
-debug: False
 
-# Set use_toy_data: True to run a fast subsampled test of the pipeline.
-# subsample_prop uses a string code: "001" = 0.1%, "010" = 1%, etc.
-use_toy_data: False
-subsample_seed: 1
-subsample_prop: "0001"        # 0.1% of reads
+## 01 - Alignment
+minimap2_preset: default
 
-
-############################
-# 01. ALIGNMENT
-############################
-minimap2_preset: default     # Options: default | k15
-
-minimap2_settings:
-  default:
-    minimap2_kmer:  14
-    minimap2_flags: "-ax splice -uf --MD --secondary=no"
-  k15:
-    minimap2_kmer:  15
-    minimap2_flags: "-ax splice -uf --MD --secondary=no"
-
-
-############################
-# 02. TRANSCRIPTOME ASSEMBLY
-############################
+## 02 - Transcriptome Assembly
 stringtie_assembly_preset: unguided
 gffcompare_preset: default
 
-isomatch_version: "v0.6.0"
-
-stringtie_assembly_settings:
-  unguided:
-    assembly_guided: False
-    assembly_flags: "-L --rf"
-  guided:
-    assembly_guided: True
-    assembly_flags: "-L --rf"
-
-merge_settings:
-  st_ref:
-    use_reference: True
-    merge_flags: "-L"
-  st:
-    use_reference: False
-    merge_flags: "-L"
-  iso_ref:
-    use_reference: True
-    merge_flags: ""
-    min_fpkm: 1.0
-    min_tpm: 1.0
-    min_sample_cnt: 0
-  iso_ref_lean:
-    use_reference: True
-    merge_flags: ""
-    min_fpkm: 0.0
-    min_tpm: 0.0
-    min_sample_cnt: 0
-  iso:
-    use_reference: False
-    merge_flags: ""
-    min_fpkm: 1.0
-    min_tpm: 1.0
-  iso_ref_long:
-    use_reference: True
-    merge_flags: "--tss-policy longer --tes-policy longer"
-    min_fpkm: 1.0
-    min_tpm: 1.0
-  iso_ref_bed:
-    use_reference: True
-    merge_flags: ""
-    min_fpkm: 1.0
-    min_tpm: 1.0
-    use_bed_files: True
-
-gffcompare_settings:
-  default:
-    gffcompare_flags: "-T"
-  strict: # Tighter exon/intron boundary tolerances
-    gffcompare_flags: "--strict-match -e 50 -d 50 -T"
-
-
-# # Profile naming convention: <assembly_mode>_<merge_mode>
-# #   "unguided" = run without reference GTF
-# #   "guided"   = run with reference GTF (-G flag)
-# stringtie_preset:  unguided_guided # unguided_guided | unguided_unguided | guided_guided | guided_unguided
-# isomatch_preset: ref_guided # default | ref_guided
-# gffcompare_preset: default
-
-# # Which tool's merged GTF is carried forward into gffcompare
-# transcript_merge_method: ["stringtie"] # stringtie | isomatch
-
-### isomatch preset keys:
-###   version        isomatch release, downloaded into tools/isomatch-{version}/
-###   merge_flags    extra flags for `isomatch merge` (e.g. "-t both -s 50 -e 50")
-###   use_reference  [optional, default False] add `ref_annotation` as one more
-###                  input to `isomatch merge`. Reference transcripts are kept,
-###                  and long-read transcripts whose ends differ from the
-###                  reference (beyond --tss-wob/--tes-wob) are kept as separate
-###                  alternative-end isoforms
-###   guide_tss      [optional, default null] TSS evidence BED from the isomatch
-###                  repo `evidence/` folder (refTSS), used by merge and classify
-###   guide_tes      [optional, default null] TES evidence BED (polyA sites)
-### The guide files are downloaded from the isomatch repo at the `version` tag.
-# isomatch_settings:
-#   guided:
-#     version: "v0.6.0"
-#     merge_flags: ""
-#     use_reference: True
-#   unguided:
-#     version: "v0.6.0"
-#     merge_flags: ""
-#     use_reference: False
-#   match_stringtie:
-#     version: "v0.6.0"
-#     merge_flags: ""
-#     use_reference: True
-#     tss-policy: longer
-#     tes-policy: longer
-
-#   default:
-#     version: "v0.6.0"
-#     merge_flags: ""
-#     use_reference: False
-#     guide_tss: "human.grch38.tss.bed"
-#     guide_tes: "human.grch38.tes.bed"
-#   ref_guided: # Reference-anchored merge with refTSS/polyA-site evidence for the ends
-#     version: "v0.6.0"
-#     merge_flags: ""
-#     use_reference: True
-#     guide_tss: "human.grch38.tss.bed"
-#     guide_tes: "human.grch38.tes.bed"
-
-# stringtie_settings:
-#   unguided_guided:
-#     assembly_guided: False
-#     assembly_flags:  "-L --rf"
-#     merge_guided:    True 
-#     merge_flags:     "-L"
-#   unguided_unguided:
-#     assembly_guided: False
-#     assembly_flags:  "-L --rf"
-#     merge_guided:    False
-#     merge_flags:     "-L"
-#   guided_guided:
-#     assembly_guided: True
-#     assembly_flags:  "-L --rf"
-#     merge_guided:    True
-#     merge_flags:     "-L"
-#   guided_unguided:
-#     assembly_guided: True
-#     assembly_flags:  "-L --rf"
-#     merge_guided:    False
-#     merge_flags:     "-L"
-
-# gffcompare_settings:
-#   default:
-#     gffcompare_flags: "-T"
-#   strict: # Tighter exon/intron boundary tolerances
-#     gffcompare_flags: "--strict-match -e 50 -d 50 -T"
-
-############################
-# 03. ARTIFACT REMOVAL
-############################
+## 03 - Artifact Removal
 pigeon_preset: default
 
-pigeon_settings:
-  default: {} 
-
-############################
-# 04. ORF IDENTIFICATION
-############################
+## 04 - ORF Identification
 orfannotate_preset: default
 
-orfannotate_settings:
-  default:
-    version: "v1.0.0"
-    gffread_clean: False
-
-### ORF filter settings control which gene/transcript/ORF types are retained
-
-### ORF filter presets: which transcripts 04b keeps. Every list key takes ["all"]
-### to disable it. ref_isoform and structural_category come from pigeon (via 04a).
-###   valid_ref_gene_type        biotype of the reference gene (NA without a reference gene)
-###   valid_ref_tx_type          biotype of the reference transcript (FSM only, NA otherwise)
-###   valid_orfannotate_type     ORFannotate coding class ("coding" / "noncoding")
-###   valid_structural_category  pigeon structural category
-###   ref_isoform_filter         "TRUE"/"FALSE" keeps only (non-)reference isoforms
-###                              (pigeon FSM, alternative ends included); "" = no filter
-orf_filter_settings:
-  ref_pc:                      # Reference protein-coding isoforms (alternative 5'/3' ends included) with a coding ORF
-    valid_ref_gene_type:       ["protein_coding"]
-    valid_ref_tx_type:         ["protein_coding"]
-    valid_orfannotate_type:    ["coding"]
-    valid_structural_category: ["all"]
-    ref_isoform_filter:        "TRUE"
-  pc_novel:                     # Every coding transcript except fragments (ISM): new genes and isoforms kept
-    valid_ref_gene_type:       ["all"]
-    valid_ref_tx_type:         ["all"]
-    valid_orfannotate_type:    ["coding"]
-    valid_structural_category: ["full-splice_match", "novel_in_catalog", "novel_not_in_catalog", "antisense", "genic", "genic_intron", "intergenic", "fusion"]
-    ref_isoform_filter:        ""
-  pc_all:                      # Every transcript with a coding ORF, any category
-    valid_ref_gene_type:       ["all"]
-    valid_ref_tx_type:         ["all"]
-    valid_orfannotate_type:    ["coding"]
-    valid_structural_category: ["all"]
-    ref_isoform_filter:        ""
-  all:                         # No filtering (debugging)
-    valid_ref_gene_type:       ["all"]
-    valid_ref_tx_type:         ["all"]
-    valid_orfannotate_type:    ["all"]
-    valid_structural_category: ["all"]
-    ref_isoform_filter:        ""
-
-# orf_filter_settings:
-#   all:                         # No filtering. Keep all ORF classes and biotypes
-#     valid_ref_gene_type:       ["all"]
-#     valid_ref_tx_type:         ["all"]
-#     valid_orfannotate_type:    ["all"]
-#     in_ref_filter:             ""
-#   orfann_coding:               # Keep only ORFannotate-classified coding transcripts
-#     valid_ref_gene_type:       ["all"]
-#     valid_ref_tx_type:         ["all"]
-#     valid_orfannotate_type:    ["coding"]
-#     in_ref_filter:             ""
-#   pc:                          # Strict: protein-coding biotype + coding ORF + in-reference
-#     valid_ref_gene_type:       ["protein_coding"]
-#     valid_ref_tx_type:         ["protein_coding"]
-#     valid_orfannotate_type:    ["coding"]
-#     in_ref_filter:             "TRUE"
-
-############################
-# 05. TRUNCATION
-############################
+## 05 - Truncation
 txendcutr_preset: default
 mmseqs2_preset: default
+scoring_preset: default
 
-txendcutr_settings:
-  default:
-    merge_distance: 200 # Max distance (bp) between truncation sites to merge
-    genome: "hg38"
-
-mmseqs2_settings:
-  default:
-    sensitivity: 7.5
-    evalue: 10000
-    max_seqs: 5000
-    max_accept: 100000
-    max_rejected: 100000
-    alignment_mode: 3
-    coverage: 0
-    cov_mode: 0
-    restrict_to_gene: TRUE # Drop cross-gene hits before storing
-
-scoring_settings:
-  default:
-    protein_metric: "bsr_max" # bsr_max | bsr_min | bsr_mixed | fident
-    length_scaling: "ratio" # ratio | canberra
-    member_weights: "uniform"
-    compute_sim_pid: FALSE # redundant with bsr calculation
-    component_weights:
-      protein: 1.0
-      cds_len: 0.1
-      start_codon: 0.2
-      stop_codon: 0.2
-      nmd: 0.4
-
-############################
-# 06. UTR QUANTIFICATION
-############################
-scUTRquant_config_template: "config/scUTRquant_config.yaml"
-
+## 06 - UTR Quantification
 scUTRquant_preset: default
-scUTRquant_settings:
-  default:
-    version: "v0.5.1"
-    genome: "hg38"
-    
-############################
-# 07. UTR USAGE
-############################
-pseudobulk_settings:
-  default: # Txs threhsold fixed effes per cell type
-    effective_txs_mode: "fixed"
-    min_effective_txs: 300
-    cell_type_level: "annotation_level_2"
-  dynamic: # Txs threhsold per cell type based on Median Absolute Deviation (MAD)
-    effective_txs_mode: "mad"
-    mad_below_median: 3 # how many standard deviations below mad to remove
-    cell_type_level: "annotation_level_2"
 
-satuRn_settings:
-  default:
-    annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
-    sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
-    sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
-    exclude_samples: ["gosot"]
-    regions: ["ACG", "IPL"]
-    celltypes: null
-    contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
-    covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
-    min_cells: 5
-    min_genes: 10
-    min_samples_per_group: 3
-    dmfilter:
-      min_samps_gene_prop: 0.75
-      min_gene_expr: 10
-      min_feature_expr: 10
-    p_value: "empirical" # raw | empirical | none (skip stageR)
-    alpha: 0.05
-  raw:
-    annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
-    sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
-    sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
-    exclude_samples: ["gosot"]
-    regions: ["ACG", "IPL"]
-    celltypes: null
-    contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
-    covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
-    min_cells: 5
-    min_genes: 10
-    min_samples_per_group: 3
-    dmfilter:
-      min_samps_gene_prop: 0.75
-      min_gene_expr: 10
-      min_feature_expr: 10
-    p_value: "raw" # raw | empirical | none (skip stageR)
-    alpha: 0.05
+############################
+# 05. RUN BEHAVIOUR
+############################
+
+## Output folder hashing
+use_hash: True
+
+## Testing / dev mode
+debug: False
+
+use_toy_data: False
+subsample_seed: 1
+subsample_prop: "0001" # 0.1% of reads

@@ -2,9 +2,6 @@
 ## ORF Identification
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
@@ -135,6 +132,3 @@ register_test_data_link(rules.ORF_annotate.output.utr5_fa)
 register_test_data_link(rules.ORF_categorization.output.isoform_summary)
 register_test_data_link(rules.ORF_categorization.output.gtf)
 register_test_data_link(rules.ORF_filtration.output.gtf_filter)
-
-## Debug: benchmark loading time
-_log(f"\t+ {step04.name} imported in {time.perf_counter() - _start_time:.3f}s")

@@ -13,9 +13,6 @@
 ##                                   `target` and `targets_config`
 from snakemake.common.configfile import load_configfile
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: hash suffix, parameters.yaml rule, path helpers.
@@ -28,13 +25,14 @@ step06 = register_step(
 
 ### Resolved settings (the step hash is derived from these)
 scUTRquant_settings = resolve_preset(config, "scUTRquant_settings", "scUTRquant_preset")
+sc_dataset = config.get("sc_dataset")
 
 ### scUTRquant Download path
 scUTRquant_version = scUTRquant_settings["version"]
 scUTRquant_tar_url = f"https://github.com/Mayrlab/scUTRquant/archive/refs/tags/{scUTRquant_version}.tar.gz"
 
 ### scUTRquant template config and samples (used to name the run_scUTRquant outputs)
-scUTRquant_template = load_configfile(config["scUTRquant_config_template"])
+scUTRquant_template = load_configfile(sc_dataset["scUTRquant_config_template"])
 scUTRquant_dataset_name = scUTRquant_template["dataset_name"]
 scUTRquant_output_types = scUTRquant_template["output_type"]
 
@@ -58,6 +56,15 @@ rule download_scUTRquant:
         """
         mkdir -p {output.scUTRquant_dir}
         curl -L {params.url} | tar -xz -C {output.scUTRquant_dir} --strip-components=1
+
+        # ENDome patches to scUTRquant:
+        ## 1) target-specific tmp dir for bustool_sort
+        sed -i 's|"/bs-utrome-sort" + wcs.sample_id|"/bs-utrome-sort" + wcs.target + "-" + wcs.sample_id|' {output.snakefile}
+        ## 2) mark output.sorted.bus as temp() to save disk space
+        sed -i '/^rule bustools_sort:/,/^rule /s|"\\(data/kallisto/.*/output\\.sorted\\.bus\\)"|temp("\\1")|' {output.snakefile}
+        ## Print if successful
+        [ "$(grep -c 'wcs.target + "-" + wcs.sample_id' {output.snakefile})" -eq 2 ] || {{ echo "scUTRquant tmp_dir patch failed" >&2; exit 1; }}
+        grep -q 'temp("data/kallisto/.*/output.sorted.bus")' {output.snakefile} || {{ echo "scUTRquant temp() patch failed" >&2; exit 1; }}
         """
 
 rule generate_endome_target:
@@ -92,9 +99,9 @@ rule generate_endome_target:
 rule generate_scutrquant_config:
     message: "--- Writing resolved scUTRquant config ---"
     input:
-        template = config["scUTRquant_config_template"],
+        template = sc_dataset["scUTRquant_config_template"],
         targets = rules.generate_endome_target.output.targets, 
-        samples = config["input_scUTRquant_samples"],
+        samples = sc_dataset["sample_sheet"],
     output:
         config_file = step06.path("Configs/{endome_name}.scUTRquant_config.yaml")
     run:
@@ -113,27 +120,52 @@ rule generate_scutrquant_config:
         with open(output.config_file, "w") as f:
             yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
 
+rule prepare_scUTRquant_envs:
+    message: "--- Creating scUTRquant conda environments ---"
+    input:
+        config_file = lambda w: ancient(endome_targets[0]),
+        snakefile = rules.download_scUTRquant.output.snakefile
+    output:
+        flag = touch(f".snakemake/conda/scUTRquant-{scUTRquant_version}.envs.done")
+    threads: 1
+    params:
+        workdir = lambda w, input: os.path.dirname(os.path.dirname(os.path.abspath(input.config_file))),
+        configfile = lambda w, input: os.path.abspath(input.config_file),
+        conda_prefix = os.path.abspath(".snakemake/conda"),
+    shell:
+        """
+        snakemake -s {input.snakefile} \
+            --configfile {params.configfile} \
+            --directory {params.workdir} \
+            --nolock \
+            --use-conda --conda-prefix {params.conda_prefix} \
+            --conda-create-envs-only \
+            --cores {threads} 2>&1 | tee {log}
+        """
+
 rule run_scUTRquant:
     input:
         config_file = rules.generate_scutrquant_config.output.config_file,
         snakefile = rules.download_scUTRquant.output.snakefile,
+        envs = ancient(rules.prepare_scUTRquant_envs.output.flag),
     output:
         sce = expand(step06.path("data/sce/{endome_name}/{dataset_name}.{output_type}.Rds"),
             dataset_name=scUTRquant_dataset_name, output_type=scUTRquant_output_types, allow_missing=True), 
     log: step06.logs("scUTRquant/{endome_name}.run_scUTRquant.log")
-    threads: 16
+    threads: 9
     params:
         workdir = lambda w: str(step06.path()).format(dataset=w.dataset, group=w.group),
         configfile = lambda w, input: os.path.abspath(input.config_file),
-        conda_prefix = os.path.abspath(".snakemake/conda"),   # reuse outer envs
+        conda_prefix = os.path.abspath(".snakemake/conda"),
     shell:
         """
         snakemake -s {input.snakefile} \
             --configfile {params.configfile} \
             --config target={wildcards.endome_name} \
             --directory {params.workdir} \
-            --nolock \
+            --nolock --rerun-incomplete \
             --use-conda --conda-prefix {params.conda_prefix} \
+            --set-threads kallisto_bus={threads} --touch \
             --cores {threads} 2>&1 | tee {log}
         """ 
 

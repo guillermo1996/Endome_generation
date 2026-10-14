@@ -1,10 +1,10 @@
 dataset_name: "hardy_snRNAseq" # this can be anything i.e. rosmap_2024 or Hardy
-sample_file: "data/Hardy_snRNAseq/sample_sheet_ACG_toy.csv" # full path to sample_sheet.csv i.e. input/sample_sheet.csv
-cell_annots: "data/Hardy_snRNAseq/annots.csv" # optional: you can provide an annotation file, or simply bind it to your data later on
+sample_file: null # full path to sample_sheet.csv i.e. input/sample_sheet.csv
+cell_annots: null # optional: you can provide an annotation file, or simply bind it to your data later on
 sample_regex: ".*"
 cell_annots_key: "cell_id" # optional: depending on whether you included a cell_annots file
 exclude_unannotated_cells: False
-target: "endome" # this is where you define which UTRome you wish to map to, where it be a default one or a custom one (you can list >1 as a list)
+target: null # this is where you define which UTRome you wish to map to, where it be a default one or a custom one (you can list >1 as a list)
 tech: "10xv3" # it's important to get this right, as read structure will vary by the technology used and the tech-specific read structure is utilised by the pipeline
 strand: "--fr-stranded" # orientation of sequence reads with respect to transcripts; all 10X 3'-end libraries use --fr-stranded
 output_type:

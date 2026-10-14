@@ -3,42 +3,23 @@
 # https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
 # in particular regarding the standardized folder structure mentioned there.
 
-# ── Timing helpers ────────────────────────────────────────────────────
-import sys
-import time
-import os
-from datetime import datetime
-
-# Verbose load-time / timing instrumentation is gated on config["debug"].
-# Default False; the real value is read once config/config.yaml is loaded.
-DEBUG = False
-
-def _now() -> str:
-    """Return the current wall-clock time as ``HH:MM:SS``."""
-    return datetime.now().strftime("%H:%M:%S")
-
-def _log(msg: str) -> None:
-    """Print a timestamped debug message to stderr."""
-    if DEBUG and workflow.is_main_process:
-        print(f"[{_now()}] {msg}", file=sys.stderr)
-
 # ── Snakemake setup ───────────────────────────────────────────────────
-_t = time.perf_counter()
 from snakemake.utils import min_version
 from snakemake.utils import validate
 from snakemake.utils import logger
-_utils_import_time = time.perf_counter() - _t
 
-# Set the minimum snakemake version
+## Set the minimum snakemake version
 min_version("9.23.0")
+
+## Set -euo pipefail
 shell.prefix("set -euo pipefail; ")
 
 # ── Configuration ─────────────────────────────────────────────────────
+configfile: "config/presets.yaml"
 configfile: "config/config.yaml"
-# validate(config, schema="../schema/config_schema.yaml")
 
-# Resolve the debug flag now that the config is loaded.
-_log(f"Snakemake utils imported in {_utils_import_time:.3f}s")
+## Validate configuration
+# validate(config, schema="../schema/config_schema.yaml")
 
 # ── Wildcard constraints ──────────────────────────────────────────────
 wildcard_constraints:
@@ -50,8 +31,6 @@ wildcard_constraints:
     endome_name = r"[^/]+\.w[^./]+\.\dp"
     
 # ── Rule modules ──────────────────────────────────────────────────────
-_log("Importing individual rules:")
-
 include: "rules/00-Common.smk"
 include: "rules/01-Alignment.smk"
 include: "rules/02-Transcriptome_Assembly.smk"
@@ -59,7 +38,7 @@ include: "rules/03-Artifact_Removal.smk"
 include: "rules/04-ORF_Identification.smk"
 include: "rules/05-Truncation.smk"
 include: "rules/06-UTR_Quantification.smk"
-include: "rules/07-UTR_Usage.smk"
+# include: "rules/07-UTR_Usage.smk"
 
 # ── Lifecycle hooks ───────────────────────────────────────────────────
 onstart:
@@ -73,79 +52,33 @@ onerror:
 
 
 # ── Pipeline variables ────────────────────────────────────────────────
-input_dataset = config.get("input_dataset", ["Ebbert"])
-input_group = config.get("input_group", ["control"])
-merge_method = config.get("merge_preset", ["st_ref"])
-pc_filter = config.get("orf_filter_preset", ["pc"])
-trunc_site = config.get("trunc_site", ["3p"])
-trunc_width = config.get("trunc_width", [500])
-pseudobulk_method = config.get("pseudobulk_preset", ["default"])
-saturn_method = config.get("saturn_preset", ["default"])
+input_dataset = config.get("input_dataset")
+input_group = config.get("input_group")
+trunc_site = config.get("trunc_site")
+trunc_width = config.get("trunc_width")
 
-# ── Helper functions ──────────────────────────────────────────────────
-def generate_param_files():
-    """List the per-step ``parameters.yaml`` targets to request in ``rule all``.
-
-    The files are always requested, so a missing one is written. Whether an
-    existing one is *rewritten* on every invocation is decided by
-    ``config["always_save_params"]`` (see ``create_save_params_rule``).
-    """
-    param_dict = {
-        "step01_params": expand(step01.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step02_params": expand(step02.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step03_params": expand(step03.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step04_params": expand(step04.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step05_params": expand(step05.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step06_params": expand(step06.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-        "step07_params": expand(step07.path("parameters.yaml"), dataset = input_dataset, group = input_group),
-    }
-
-    return sum(param_dict.values(), [])
-
+merge_preset = config.get("merge_preset")
+orf_filter_preset = config.get("orf_filter_preset")
+pseudobulk_preset = config.get("pseudobulk_preset")
+satuRn_preset = config.get("satuRn_preset")
 
 # ── Main outputs ──────────────────────────────────────────────────
-truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.txendcutr.gtf"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
-info_report = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
-kallisto_index = expand(step05.path("kallisto_index/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.kdx"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
-endome_targets = expand(step06.path("scUTRquant/ENDomes/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.scUTRquant_config.yaml"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
-scUTRquant_sce = expand(step06.path("data/sce/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}/{dataset_name}.{output_type}.Rds"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site, 
-    dataset_name=scUTRquant_dataset_name, output_type=scUTRquant_output_types)
-pseudoalignment_rates = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method)
-cells = expand(step07.path("cells/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.cells.tsv"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method)
-pseudobulk = expand(step07.path("pseudobulk/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.pseudobulk.rds"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method)
-pseudobulk_report = expand(step07.path("reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.pseudobulk_report.html"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
-saturn = expand(step07.path("DTU/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.{saturn_method}.satuRn.condition.tsv.gz"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method, saturn_method = saturn_method)
-saturn_report = expand(step07.path("reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.satuRn_report.html"),
-    dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-    width = trunc_width, txEnd = trunc_site)
+endome_name = "{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}"
+endome_axes = dict(
+    dataset=input_dataset, group=input_group, 
+    merge_method=merge_preset, orf_filter=orf_filter_preset, 
+    width=trunc_width, txEnd=trunc_site
+)
 
-# scUTRquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"), dataset = input_dataset, group = input_group)
-# dep_scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"), dataset = input_dataset, group = input_group)
-# pseudoalignment_rates = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"),
-#     dataset = input_dataset, group = input_group, merge_method = merge_method)
-# scUTRquant = expand(step06.path("scUTRquant/data/sce/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}/{ds}.{ot}.Rds"),
-#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
-#     width = trunc_width, txEnd = trunc_site, ds = sq_template["dataset_name"], ot = sq_template["output_type"])
-
+truncated_gtf = expand(step05.path("txendcutr/" + endome_name + ".txendcutr.gtf"), **endome_axes)
+info_report = expand(step05.path("characterization/reports/" + endome_name + ".html"), **endome_axes)
+endome_targets = expand(step06.path("Configs/" + endome_name + ".scUTRquant_config.yaml"), **endome_axes)
+scUTRquant_sce = expand(step06.path("data/sce/" + endome_name + "/{dataset_name}.{output_type}.Rds"), **endome_axes,
+    dataset_name = scUTRquant_dataset_name, output_type = scUTRquant_output_types)
+# pseudobulk = expand(step07.path("pseudobulk/" + endome_name + ".{pseudobulk_method}.pseudoubulk.rds"), **endome_axes,
+#     pseudobulk_method = pseudobulk_preset)
+# saturn = expand(ste07.path("DTU/" + endome_name + ".{pseudobulk_method}.{saturn_method}.satuRn.condition.tvs.gz"), **endome_axes,
+#     pseudobulk_method = pseudobulk_preset, saturn_method=satuRn_preset)
 
 rule all:
     input:
@@ -153,82 +86,76 @@ rule all:
         truncated_gtf = truncated_gtf,
         info_report = info_report,
         scUTRquant_sce = scUTRquant_sce,
-        pseudobulk = pseudobulk,
-        pseudobulk_report = pseudobulk_report,
-        saturn = saturn,
-        saturn_report = saturn_report
+        # pseudobulk = pseudobulk,
+        # pseudobulk_report = pseudobulk_report,
+        # saturn = saturn,
+        # saturn_report = saturn_report
     default_target: True
 
-rule all2:
+# ── Additional outputs ──────────────────────────────────────────────────
+gencode_axes = dict(
+    dataset="gencode", group="none",
+    merge_method="ref", prefix="gencode", orf_filter="ref_pc",
+    width=trunc_width, txEnd=trunc_site)
+
+gencode_report = expand(rules.endome_report.output.html, **gencode_axes)
+gencode_UTR_report = expand(rules.endome_report.output.html, **(gencode_axes | dict(width="UTR")))
+gencode_UTR_empty_report = expand(rules.endome_report.output.html, **(gencode_axes | dict(width="UTR_empty")))
+gencode_UTR_equal_report = expand(rules.endome_report.output.html, **(gencode_axes | dict(width="UTR_equal")))
+gencode_UTR_bin_report = expand(rules.endome_report.output.html, **(gencode_axes | dict(width="UTR_bin")))
+
+endome_report_path = step05.path("characterization/reports/" + endome_name + ".html")
+dataset_UTR_report = expand(endome_report_path, **(endome_axes | dict(orf_filter="ref_pc", width="UTR")))
+dataset_UTR_empty_report = expand(endome_report_path, **(endome_axes | dict(orf_filter="ref_pc", width="UTR_empty")))
+dataset_UTR_equal_report = expand(endome_report_path, **(endome_axes | dict(orf_filter="ref_pc", width="UTR_equal")))
+dataset_UTR_bin_report = expand(endome_report_path, **(endome_axes | dict(orf_filter="ref_pc", width="UTR_bin")))
+
+rule UTR_info_study:
     input:
-        # Generate Parameters
-        # parameters = generate_param_files(),
-        # Truncated ENDomes
-        # truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
-        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-        # # DuckDB
-        # duckdb_scores = expand(step05.path("DuckDB/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.scores.done"),
-        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-        # html = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
-        #     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-        # Gencode
-        truncated_gencode_gtf = expand(step05.path("txendcutr/{prefix}.{orf_filter}.txendcutr.w{width}.{txEnd}.gtf"),
-            dataset = "gencode", group = "ref", merge_method = "ref", prefix = "gencode", orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site),
-        # scUTRquant merged target catalog (one entry per ENDome) + resolved config.
-        # PHASE 1 (config absent): these are built; the module below is skipped.
-        # scutrquant_catalog = expand(step06.path("scUTRquant/ENDome_targets.yml"),
-        #     dataset = input_dataset, group = input_group),
-        # scutrquant_config = expand(step06.path("scUTRquant/scUTRquant_config.yaml"),
-        #     dataset = input_dataset, group = input_group),
-        # # PHASE 2 (config present): scUTRquant runs via its module -> txs.Rds.
-        # # Empty on the first run; populated once the config exists (re-run).
-        # scUTRquant = expand(step06.path("scUTRquant/scUTRquant.done"),
-        #     dataset = input_dataset, group = input_group)
-    default_target: False
-
-
-UTR_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
-    dataset = input_dataset, group = input_group, merge_method = merge_method, 
-    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
-UTR_empty_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
-    dataset = input_dataset, group = input_group, merge_method = merge_method, 
-    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
-UTR_equal_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
-    dataset = input_dataset, group = input_group, merge_method = merge_method, 
-    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
-UTR_bin_report =expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"), 
-    dataset = input_dataset, group = input_group, merge_method = merge_method, 
-    orf_filter = pc_filter, width = "UTR_bin", txEnd = trunc_site)
-
-gencode_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site)
-gencode_UTR_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
-gencode_UTR_empty_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
-gencode_UTR_equal_gtf = expand(rules.txendcutr_truncation.output.gtf, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
-
-genconde_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = trunc_width, txEnd = trunc_site)
-gencode_UTR_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR", txEnd = trunc_site)
-gencode_UTR_empty_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR_empty", txEnd = trunc_site)
-gencode_UTR_equal_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR_equal", txEnd = trunc_site)
-gencode_UTR_bin_report = expand(rules.endome_report.output.html, dataset = "gencode", group = "none", merge_method = "ref", prefix = "gencode",
-    orf_filter = pc_filter, width = "UTR_bin", txEnd = trunc_site)
-
-rule all_3:
-    input:
-        gencode_default_report = genconde_report,
+        gencode_report = gencode_report,
         gencode_UTR_report = gencode_UTR_report,
         gencode_UTR_empty_report = gencode_UTR_empty_report,
         gencode_UTR_equal_report = gencode_UTR_equal_report,
         gencode_UTR_bin_report = gencode_UTR_bin_report,
-        UTR_report = UTR_report,
-        UTR_empty_report = UTR_empty_report,
-        UTR_equal_report = UTR_equal_report,
-        UTR_bin_report = UTR_bin_report
-    default_target: False
+        dataset_UTR_report = dataset_UTR_report,
+        dataset_UTR_empty_report = dataset_UTR_empty_report,
+        dataset_UTR_equal_report = dataset_UTR_equal_report,
+        dataset_UTR_bin_report = dataset_UTR_bin_report,
+
+
+# pseudobulk = expand(step07.path("pseudobulk/" + endome_name + ".{pseudobulk_method}.pseudobulk.rds"), **endome_axes, pseudobulk_method = pseudobulk_preset)
+
+# truncated_gtf = targets(step05, "txendcutr/{endome_name}.txendcutr.gtf")
+# truncated_gtf = expand(step05.path("txendcutr/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.txendcutr.gtf"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)
+# info_report = expand(step05.path("characterization/reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.html"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)
+# kallisto_index = expand(step05.path("kallisto_index/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.kdx"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)
+# endome_targets = expand(step06.path("scUTRquant/ENDomes/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.scUTRquant_config.yaml"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)
+# scUTRquant_sce = expand(step06.path("data/sce/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}/{dataset_name}.{output_type}.Rds"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site, 
+#     dataset_name=scUTRquant_dataset_name, output_type=scUTRquant_output_types)
+# pseudoalignment_rates = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method)
+# cells = expand(step07.path("cells/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.cells.tsv"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method)
+# pseudobulk = expand(step07.path("pseudobulk/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.pseudobulk.rds"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method)
+# pseudobulk_report = expand(step07.path("reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.pseudobulk_report.html"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)
+# saturn = expand(step07.path("DTU/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.{pseudobulk_method}.{saturn_method}.satuRn.condition.tsv.gz"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site, pseudobulk_method = pseudobulk_method, saturn_method = saturn_method)
+# saturn_report = expand(step07.path("reports/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.satuRn_report.html"),
+#     dataset = input_dataset, group = input_group, merge_method = merge_method, orf_filter = pc_filter,
+#     width = trunc_width, txEnd = trunc_site)

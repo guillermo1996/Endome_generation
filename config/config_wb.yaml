@@ -1,0 +1,21 @@
+##########################################################
+# Verily Workbench overrides for the ENDome generation pipeline
+#
+# Only the values that differ from config/config.yaml on the Workbench app.
+# It is applied on top of config/presets.yaml and config/config.yaml:
+#
+#   pixi run snakemake --profile workflow/profiles/wb --configfile config/config_wb.yaml
+#
+# Any other key of config/config.yaml can be overridden here in the same way.
+##########################################################
+
+############################
+# 03. PATHS
+############################
+
+## Reference genome and annotation (GENCODE GRCh38 / v48)
+ref_genome: "/config/ENDome/Resources/Genome/GRCh38.primary_assembly.genome.fa"
+ref_annotation: "/config/ENDome/Resources/Gencode/gencode.v48.annotation.gtf"
+
+## Output directories
+main_output_path: "/config/ENDome/Results/"

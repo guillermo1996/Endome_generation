@@ -2,9 +2,6 @@
 ## Alignment & Sorting
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
@@ -21,17 +18,15 @@ minimap2_settings = resolve_preset(config, "minimap2_settings", "minimap2_preset
 ## Functions
 ################################################################################
 def get_input_fastq(wildcards):
-    endome_samples_df = generate_input_samples_df(wildcards.dataset, wildcards.group)
-    row = endome_samples_df[endome_samples_df["sample_id"] == wildcards.sample]
+    sample = get_input_sample(wildcards)
 
-    return row.iloc[0]["path"]
+    if sample["file_type"] != "fastq":
+        raise ValueError(f"{wildcards.sample} is a '{sample['file_type']}' input, so it has no alignment step")
+    return sample["path"]
 
 def get_toy_samples(wildcards):
-    if wildcards.dataset == "Ebbert":
-        return rules.samtools_sort.output.bam
-    elif wildcards.dataset == "Wood":
-        return Path(config["input_dir_wood"]) / wildcards.sample / "Mapping" / f"{wildcards.sample}_minimap.bam"
-
+    sample = get_input_sample(wildcards)
+    return sample["path"] if sample["file_type"] == "bam" else rules.samtools_sort.output.bam
 
 ## Rules
 ################################################################################
@@ -91,6 +86,3 @@ rule samtools_subsample:
 
         samtools index {output.bam}
         """
-
-## Debug: benchmark loading time
-_log(f"\t+ {step01.name} imported in {time.perf_counter() - _t:.3f}s")

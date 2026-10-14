@@ -2,9 +2,6 @@
 ## 05 - ENDome truncation
 ################################################################################
 
-## Debug: benchmark loading time
-_start_time = time.perf_counter()
-
 ## Variables
 ################################################################################
 ### Register the step: generates the hash suffix, creates the parameter rule and returns the output_path helpers.
@@ -185,6 +182,3 @@ register_test_data_link(rules.endome_export_proteins.output.faa)
 register_test_data_link(rules.endome_export_proteins.output.protein_map)
 register_test_data_link(rules.endome_mmseqs_search.output.pairs)
 register_test_data_link(rules.endome_build_db.output.duckdb)
-
-## Debug: benchmark loading time
-_log(f"\t+ {step05.name} imported in {time.perf_counter() - _start_time:.3f}s")
