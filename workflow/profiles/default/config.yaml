@@ -1,6 +1,6 @@
 # non-slurm profile defaults
 restart-times: 0
-cores: 64
+cores: 72
 latency-wait: 60
 
 use-conda: True

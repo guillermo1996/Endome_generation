@@ -376,6 +376,7 @@ _test_wildcard_values = {
     "width": config.get("trunc_width", [500]),
     "txEnd": config.get("trunc_site", ["3p"]),
     "pseudobulk_method": config.get("pseudobulk_preset", ["default"]),
+    "saturn_method": config.get("satuRn_preset", ["default"]),
 }
 _test_data_links = {}
 
@@ -386,7 +387,7 @@ def register_test_data_link(rule_output) -> None:
     (data/test_data/{dataset}.{group}.{merge_method}/) and the files keep a generic
     "test" prefix, so a script's interactive block only needs to change the folder.
     Every combination of the wildcards in `_test_wildcard_values` that appear in
-    the template (orf_filter, width, txEnd, pseudobulk_method) is linked.
+    the template (orf_filter, width, txEnd, pseudobulk_method, saturn_method) is linked.
 
     `rule_output` can be a single template or a list of them (e.g. an output
     entry built with expand(..., allow_missing=True)). Templates with an

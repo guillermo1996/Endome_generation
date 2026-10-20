@@ -27,6 +27,8 @@ __pycache__/
 workflow/rules/test*_*.smk
 workflow/rules/*_ALT.smk
 *copy.*
+Endome_generation.wiki
+benchmarks
 
 # ---- R / RMarkdown byproducts -------------------------------------------------
 .Rhistory

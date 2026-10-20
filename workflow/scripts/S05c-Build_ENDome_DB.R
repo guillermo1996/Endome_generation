@@ -100,6 +100,7 @@ shhh({
   library(conflicted)
   library(plyranges)
   library(tidyverse)
+  library(dm)
 })
 
 options(readr.show_progress = FALSE)

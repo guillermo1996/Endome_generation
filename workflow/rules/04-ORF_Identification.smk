@@ -104,7 +104,7 @@ rule ORF_categorization:
     log: step04.logs("ORF_Category/{prefix}.orf_annotated.log")
     benchmark: step04.benchmark("ORF_Category/{prefix}.orf_annotated.tsv")
     conda: "../envs/r.yaml"
-    script: "../scripts/04a-ORF_Categorization.R"
+    script: "../scripts/S04a-ORF_Categorization.R"
 
 rule ORF_filtration:
     message: """--- Transcript filtration ---"""
@@ -122,7 +122,7 @@ rule ORF_filtration:
         valid_structural_category = lambda wc: orf_filter_settings[wc.orf_filter].get("valid_structural_category", ["all"]),
         ref_isoform_filter = lambda wc: orf_filter_settings[wc.orf_filter].get("ref_isoform_filter", ""),
     conda: "../envs/r.yaml"
-    script: "../scripts/04b-ORF_Filtration.R"
+    script: "../scripts/S04b-ORF_Filtration.R"
 
 register_test_data_link(rules.ORF_annotate.output.summary_tsv)
 register_test_data_link(rules.ORF_annotate.output.gtf)

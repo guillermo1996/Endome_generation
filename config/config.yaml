@@ -9,7 +9,7 @@
 ############################
 
 ## ENDome generation steps
-input_dataset: ["Ebbert"] # Long-read dataset: Wood | Ebbert
+input_dataset: ["Wood"] # Long-read dataset: Wood | Ebbert
 input_group: ["control"] # Sample group within the dataset: control | case | control_case
 trunc_site: ["3p", "5p"] # Truncation site: 3p | 5p
 trunc_width: [500, 300] # Window size (bp) around truncation site
@@ -50,22 +50,22 @@ input_endome_samples: "data/endome_input_samples.tsv"
 
 
 ## Single-nucleus dataset on which the ENDome is quantified (step 06) and
-## tested for differential UTR usage (step 07)
+## tested for differential UTR usage (step 07). File formats and how to prepare
+## them for a new dataset: docs/UTR_quantification_and_usage.md
 sc_dataset:
   # Step 06: scUTRquant sample sheet and config template
   sample_sheet: "data/Hardy_snRNAseq/sample_sheet.csv"
   scUTRquant_config_template: "config/scUTRquant_config.yaml"
 
-  # Step 07: nucleus annotations, sample metadata and sample covariates
-  annotations: "data/Hardy_snRNAseq/annotations/annotation_all_levels_all_nuclei_updated.csv"
-  sample_metadata: "data/Hardy_snRNAseq/annotations/SAMPLE.csv"
-  sample_covariates: "data/Hardy_snRNAseq/annotations/Hardy_final_covariates_weighted_and_combined_batches.csv"
-  exclude_samples: ["gosot"]
+  # Step 07: cell annotation and sample tables (TSV, built by T07a for Hardy)
+  cell_annotations: "data/Hardy_snRNAseq/prepared/Hardy.cell_annotations.tsv.gz"
+  sample_table: "data/Hardy_snRNAseq/prepared/Hardy.sample_table.tsv"
+  exclude_samples: ["gosot_ACG", "gosot_IPL"] # sample_id values to remove
 
   # Step 07: what to compare
-  regions: ["ACG", "IPL"]
+  stratify_by: "region" # sample_table column: one model per value (null = no strata)
   celltypes: null # null = every cell type available
-  contrasts: ["PDD-Control", "PD-Control", "PDD-PD"]
+  contrasts: ["PDD-Control", "PD-Control", "PDD-PD"] # "<group1>-<group2>", values of the "group" column
   covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
 
 ############################

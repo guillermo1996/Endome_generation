@@ -31,7 +31,7 @@ def get_input_bam(wildcards):
     
     sample = get_input_sample(wildcards)
     if sample["file_type"] == "bam":
-        return sample_path
+        return sample["path"]
     return step01.path(f"Samtools_sort/{wildcards.sample}_sorted.bam")
 
 
@@ -195,7 +195,7 @@ rule isomatch_filter_sample:
         min_tpm = lambda wc: merge_settings[wc.merge_method].get("min_tpm", 0)
     conda: "../envs/r.yaml"
     threads: 1
-    script: "../scripts/02a-isomatch_filter_sample.R"
+    script: "../scripts/S02a-isomatch_filter_sample.R"
 
 rule isomatch_index:
     message: """--- Indexing with isomatch ----"""
@@ -305,7 +305,7 @@ rule isomatch_fix:
         min_sample_cnt = lambda wc: merge_settings[wc.merge_method].get("min_sample_cnt", 0)
     conda: "../envs/r.yaml"
     threads: 1
-    script: "../scripts/02b-isomatch_fix.R"
+    script: "../scripts/S02b-isomatch_fix.R"
 
 register_test_data_link(rules.isomatch_classify.output.annotated_gtf)
 register_test_data_link(rules.isomatch_merge.output.present_absent)

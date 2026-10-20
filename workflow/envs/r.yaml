@@ -30,6 +30,7 @@ dependencies:
   - r-kableextra=1.4.1
   - r-dt=0.34.0
   - r-ggridges=0.5.7
+  - r-ggh4x=0.3.1
 
   # Core Bioconductor infra (shared across all scripts)
   - bioconductor-biocgenerics

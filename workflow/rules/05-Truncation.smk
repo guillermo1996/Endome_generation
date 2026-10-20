@@ -39,7 +39,7 @@ rule txendcutr_truncation:
     params:
         mergeDist = txendcutr_settings["merge_distance"],
         genome = txendcutr_settings["genome"],
-        script = lambda wc: "05a-txendcutr.R" if wc.width.isdigit() else "05a-txendcutr_UTR.R"
+        script = lambda wc: "S05a-txendcutr.R" if wc.width.isdigit() else "T05a-txendcutr_UTR.R"
     conda: "../envs/r.yaml"
     threads: 12
     script: "../scripts/{params.script}" # Modified `txendcutr.R` script to include my version of the package
@@ -57,7 +57,7 @@ rule endome_export_proteins:
     log: step05.logs("MMseqs2/{prefix}.{orf_filter}.export_proteins.log")
     benchmark: step05.benchmark("MMseqs2/{prefix}.{orf_filter}.export_proteins.tsv")
     conda: "../envs/r.yaml"
-    script: "../scripts/05b-Export_Proteins.R"
+    script: "../scripts/S05b-Export_Proteins.R"
 
 rule endome_mmseqs_search:
     message: """--- All-vs-all MMseqs2 alignment of the ORF proteins ---"""
@@ -120,7 +120,7 @@ rule endome_build_db:
     benchmark: step05.benchmark("DuckDB/{prefix}.{orf_filter}.w{width}.{txEnd}.build_db.tsv")
     conda: "../envs/r.yaml"
     threads: 4
-    script: "../scripts/05c-Build_ENDome_DB.R"
+    script: "../scripts/S05c-Build_ENDome_DB.R"
 
 rule endome_compute_scores:
     message: """--- Computing the Bin Information Content scores ---"""
@@ -139,7 +139,7 @@ rule endome_compute_scores:
         component_weights = scoring_settings["component_weights"]
     conda: "../envs/r.yaml"
     threads: 4
-    script: "../scripts/05d-Compute_Scores.R"
+    script: "../scripts/S05d-Compute_Scores.R"
 
 rule endome_report:
     message: """--- Rendering the ENDome characterization report ---"""
@@ -156,7 +156,7 @@ rule endome_report:
         member_weights = scoring_settings["member_weights"],
         component_weights = scoring_settings["component_weights"]
     conda: "../envs/r.yaml"
-    script: "../scripts/05e-ENDome_Report.Rmd"
+    script: "../scripts/R05a-ENDome_Report.Rmd"
 
 
 ## Pseudoalignment RUles

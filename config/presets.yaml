@@ -189,14 +189,12 @@ pseudobulk_settings:
   default: # Txs threshold fixed for every cell type
     effective_txs_mode: "fixed"
     min_effective_txs: 300
-    cell_type_level: "annotation_level_2"
   dynamic: # Txs threshold per cell type based on Median Absolute Deviation (MAD)
     effective_txs_mode: "mad"
     mad_below_median: 3 # how many MADs below the median to remove
-    cell_type_level: "annotation_level_2"
 
 ## Selected by: satuRn_preset (list)
-### Statistical parameters of the test only. The dataset, regions, contrasts
+### Statistical parameters of the test only. The dataset, strata, contrasts
 ### and covariates are set in "sc_dataset" (section 04). "raw" reuses "default"
 ### through a YAML anchor and only changes the p-value type.
 satuRn_settings:

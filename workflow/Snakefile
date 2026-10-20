@@ -38,7 +38,7 @@ include: "rules/03-Artifact_Removal.smk"
 include: "rules/04-ORF_Identification.smk"
 include: "rules/05-Truncation.smk"
 include: "rules/06-UTR_Quantification.smk"
-# include: "rules/07-UTR_Usage.smk"
+include: "rules/07-UTR_Usage.smk"
 
 # ── Lifecycle hooks ───────────────────────────────────────────────────
 onstart:
@@ -75,10 +75,12 @@ info_report = expand(step05.path("characterization/reports/" + endome_name + ".h
 endome_targets = expand(step06.path("Configs/" + endome_name + ".scUTRquant_config.yaml"), **endome_axes)
 scUTRquant_sce = expand(step06.path("data/sce/" + endome_name + "/{dataset_name}.{output_type}.Rds"), **endome_axes,
     dataset_name = scUTRquant_dataset_name, output_type = scUTRquant_output_types)
-# pseudobulk = expand(step07.path("pseudobulk/" + endome_name + ".{pseudobulk_method}.pseudoubulk.rds"), **endome_axes,
-#     pseudobulk_method = pseudobulk_preset)
-# saturn = expand(ste07.path("DTU/" + endome_name + ".{pseudobulk_method}.{saturn_method}.satuRn.condition.tvs.gz"), **endome_axes,
-#     pseudobulk_method = pseudobulk_preset, saturn_method=satuRn_preset)
+cells = expand(step07.path("cells/" + endome_name + ".{pseudobulk_method}.cells.tsv"), **endome_axes, pseudobulk_method = pseudobulk_preset)
+pseudobulk = expand(step07.path("pseudobulk/" + endome_name + ".{pseudobulk_method}.pseudobulk.rds"), **endome_axes,
+    pseudobulk_method = pseudobulk_preset)
+satuRn = expand(step07.path("DTU/" + endome_name + ".{pseudobulk_method}.{saturn_method}.satuRn.condition.tsv"), **endome_axes,
+    pseudobulk_method = pseudobulk_preset, saturn_method=satuRn_preset)
+satuRn_report = expand(step07.path("reports/" + endome_name + ".satuRn_report.html"), **endome_axes)
 
 rule all:
     input:
@@ -86,10 +88,9 @@ rule all:
         truncated_gtf = truncated_gtf,
         info_report = info_report,
         scUTRquant_sce = scUTRquant_sce,
-        # pseudobulk = pseudobulk,
-        # pseudobulk_report = pseudobulk_report,
-        # saturn = saturn,
-        # saturn_report = saturn_report
+        pseudobulk = pseudobulk,
+        satuRn = satuRn,
+        satuRn_report = satuRn_report
     default_target: True
 
 # ── Additional outputs ──────────────────────────────────────────────────
@@ -121,6 +122,11 @@ rule UTR_info_study:
         dataset_UTR_empty_report = dataset_UTR_empty_report,
         dataset_UTR_equal_report = dataset_UTR_equal_report,
         dataset_UTR_bin_report = dataset_UTR_bin_report,
+
+pseudoalignment_rates_png = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"), **endome_axes)
+rule draw_alignment_rates:
+    input: 
+        pseudoalignment_rates_png = pseudoalignment_rates_png
 
 
 # pseudobulk = expand(step07.path("pseudobulk/" + endome_name + ".{pseudobulk_method}.pseudobulk.rds"), **endome_axes, pseudobulk_method = pseudobulk_preset)

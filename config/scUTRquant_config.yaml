@@ -1,21 +1,29 @@
-dataset_name: "hardy_snRNAseq" # this can be anything i.e. rosmap_2024 or Hardy
-sample_file: null # full path to sample_sheet.csv i.e. input/sample_sheet.csv
-cell_annots: null # optional: you can provide an annotation file, or simply bind it to your data later on
-sample_regex: ".*"
-cell_annots_key: "cell_id" # optional: depending on whether you included a cell_annots file
+# scUTRquant config template (step 06).
+
+## Filled in by the pipeline (values here are ignored)
+target: null          # the ENDome
+targets_config: null  # the ENDome's targets YAML (06-UTR_Quantification/Targets/)
+sample_file: null     # sc_dataset.sample_sheet in config/config.yaml
+
+## Dataset-specific: check these for every new single-cell dataset
+dataset_name: "hardy_snRNAseq" # name of the output SCE: data/sce/<ENDome>/<dataset_name>.txs.Rds
+tech: "10xv3"                  # kallisto bus technology string (read structure of the chemistry)
+strand: "--fr-stranded"        # read orientation
+bx_whitelist: "data/bxs/3M-february-2018.txt" # 10x barcode whitelist of the chemistry
+
+## Cell filtering
+min_umis: 50 
+cell_annots: null
+cell_annots_key: "cell_id"
 exclude_unannotated_cells: False
-target: null # this is where you define which UTRome you wish to map to, where it be a default one or a custom one (you can list >1 as a list)
-tech: "10xv3" # it's important to get this right, as read structure will vary by the technology used and the tech-specific read structure is utilised by the pipeline
-strand: "--fr-stranded" # orientation of sequence reads with respect to transcripts; all 10X 3'-end libraries use --fr-stranded
+sample_regex: ".*"
+correct_bus: True
+
+## Outputs
 output_type:
-  - "txs" # output transcript quantification
-  - "genes" # optional: output gene-level quantification - not necessary if you will just be looking at transcript-level results, I recommend to remove to save time/ disk space
+  - "txs"   # bin (transcript) counts
 output_format:
   - "sce"
-tmp_dir: "~/tmp"
-bx_whitelist: "data/bxs/3M-february-2018.txt" # this is the barcode whitelist that is relevant to your technology i.e. the Wood data will utilise a different one to Hardy data as it's 10x multiome (exp+atac) compared to 10x single-cell gene expression. These can be downloaded for different 10x technologies from kb.10xgenomics.com (see https://kb.10xgenomics.com/hc/en-us/articles/115004506263-What-is-a-barcode-whitelist). 
-correct_bus: True
-min_umis: 50
-targets_config: "config/endome_targets.yml" # this points to the UTRome config file (targets.yml) which defines the locations of the UTRome-related files for each distinct UTRome
 use_hdf5: False
 include_reports: True
+tmp_dir: "~/tmp"
