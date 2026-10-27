@@ -24,11 +24,6 @@ orfannotate_env_url = f"https://raw.githubusercontent.com/egustavsson/ORFannotat
 
 ## Functions
 ################################################################################
-def orfannotate_input(wildcards):
-    if orfannotate_settings.get("gffread_clean", False):
-        return rules.gffread.output.gtf
-    else:
-        return rules.pigeon_filter.output.filtered_gtf
 
 ## Rules
 ################################################################################
@@ -45,24 +40,14 @@ rule download_ORF_annotate:
         curl -L {params.url} | tar -xz -C {output.orfanntoate_dir} --strip-components=1
         """
 
-rule gffread:
-    message: """--- Cleaning gtf with gffread ---"""
-    input:
-        gtf = step03.path("Classify_Filter/{prefix}.sorted.filtered.gtf")
-    output:
-        gtf = step04.path("gffread/{prefix}.gtf")
-    log: step04.logs("ORF_Identification/gffread_{prefix}.log")
-    benchmark: step04.benchmark("ORFannotate/gffread_{prefix}.tsv")
-    conda: "../envs/gffread.yaml"
-    shell:
-        "gffread -E {input.gtf} -T -o {output.gtf} 2>&1 | tee {log}"
-
 rule ORF_annotate:
     message: """--- ORF Identification with ORFannotate.py ---"""
     input:
         script = rules.download_ORF_annotate.output.script,
-        gtf = orfannotate_input,
-        ref_genome = ref_genome
+        ref_genome = ref_genome,
+        gtf = branch(lambda wc: get_input_setting(wc.prefix, "skip_pigeon_filter"),
+            then = rules.pigeon_prepare.output.sorted_gtf,
+            otherwise = rules.pigeon_filter.output.filtered_gtf),
     output:
         summary_tsv = step04.path("ORFannotate/{prefix}/ORFannotate_summary.tsv"),
         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated.gtf"),
@@ -72,23 +57,12 @@ rule ORF_annotate:
     log: step04.logs("ORFannotate/{prefix}.log")
     benchmark: step04.benchmark("ORFannotate/{prefix}.tsv")
     params:
-        out_dir = lambda w, output: Path(output.summary_tsv).parent
+        out_dir = lambda w, output: Path(output.summary_tsv).parent,
+        skip_pigeon_filter = lambda wc: get_input_setting(wc.prefix, "skip_pigeon_filter"),
     threads: 1
     conda: orfannotate_env_url
     shell:
         "python {input.script} --gtf {input.gtf} --fa {input.ref_genome} --outdir {params.out_dir} 2>&1 | tee {log}"
-
-# rule ORF_annotate_clean:
-#     message: """--- Clean ORFannotate output with gffread ---"""
-#     input:
-#         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated.gtf")
-#     output:
-#         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated_clean.gtf"),
-#     log: step04.logs("ORF_Identification/gffread_clean_{prefix}.log")
-#     benchmark: step04.benchmark("ORFannotate/gffread_clean_{prefix}.tsv")
-#     conda:  "../envs/gffread.yaml"
-#     shell:
-#         "gffread -E {input.gtf} -T -o {output.gtf} 2>&1 | tee {log}"
 
 rule ORF_categorization:
     message: """--- Transcript categorization ---"""
@@ -97,7 +71,9 @@ rule ORF_categorization:
         ref_annotation = ref_annotation,
         protein_fa = step04.path("ORFannotate/{prefix}/protein.fa"),
         orf_summary = step04.path("ORFannotate/{prefix}/ORFannotate_summary.tsv"),
-        pigeon_summary = step03.path("Classify_Filter/{prefix}.pigeon_classification.filtered_lite_classification.txt")
+        pigeon_summary = branch(lambda wc: get_input_setting(wc.prefix, "skip_pigeon_filter"),
+            then = rules.pigeon_classify.output.classification_txt,
+            otherwise = rules.pigeon_filter.output.pigeon_summary),
     output:
         gtf = step04.path("ORF_Category/{prefix}.orf_annotated.gtf"),
         isoform_summary = step04.path("ORF_Category/{prefix}.isoform_summary.tsv"),

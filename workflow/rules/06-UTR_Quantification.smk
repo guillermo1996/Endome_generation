@@ -146,7 +146,7 @@ rule run_scUTRquant:
         # kallisto bus spends most of its time loading the index (single-threaded),
         # so it is faster to run several libraries at once with fewer threads
         # each than one library with all of them (benchmarks/scUTRquant_threads)
-        kallisto_bus_threads = lambda w, threads: max(1, min(10, threads-1))
+        kallisto_bus_threads = lambda w, threads: max(1, min(10, threads-2))
     shell:
         """
         snakemake -s {input.snakefile} \
@@ -180,8 +180,9 @@ rule collect_run_info:
 rule pseudoalignment_rates:
     message: "--- Plotting scUTRquant pseudoalignment rates for {wildcards.dataset}.{wildcards.group}.{wildcards.merge_method} ---"
     input:
-        run_info = expand(step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.{orf_filter}.w{width}.{txEnd}.run_info.tsv"),
-            orf_filter = config["orf_filter_preset"], width = config["trunc_width"], txEnd = config["trunc_site"], allow_missing = True)
+        run_info = lambda wc: expand(step06.path("pseudoalignment/{endome_name}.run_info.tsv"),
+            dataset = wc.dataset, group = wc.group,
+            endome_name = endome_table.loc[endome_table["prefix"] == f"{wc.dataset}.{wc.group}.{wc.merge_method}", "endome_name"].unique())
     output:
         tsv = step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.tsv"),
         p_pseudoaligned = step06.path("pseudoalignment/{dataset}.{group}.{merge_method}.pseudoalignment.png"),

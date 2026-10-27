@@ -91,6 +91,7 @@ gffcompare_settings:
 pigeon_settings:
   default: {}
 
+
 ############################
 # 04. ORF IDENTIFICATION
 ############################
@@ -98,7 +99,7 @@ pigeon_settings:
 orfannotate_settings:
   default:
     version: "v1.0.0"
-    gffread_clean: False
+
 
 ## Selected by: orf_filter_preset (list)
 ### ORF filter presets: which transcripts 04b keeps. Every list key takes ["all"]

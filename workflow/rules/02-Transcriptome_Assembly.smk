@@ -34,10 +34,9 @@ def get_input_bam(wildcards):
         return sample["path"]
     return step01.path(f"Samtools_sort/{wildcards.sample}_sorted.bam")
 
-
 def get_filter_input(wildcards):
-    if wildcards.merge_method == "ref":
-        return ref_annotation
+    if wildcards.merge_method == "ext":
+        return get_input_setting(f"{wildcards.dataset}.{wildcards.group}.{wildcards.merge_method}", "pre-assembled_gtf")
     elif wildcards.merge_method.startswith("st"):
         return rules.gffcompare.output.gtf
     elif wildcards.merge_method.startswith("iso"):

@@ -19,23 +19,8 @@ def add_suffix_to_filename(path, suffix):
     return base + suffix + ext
 
 def pigeon_prepare_input(wildcards):
-    parts = wildcards.prefix.split(".")
-
-    if wildcards.prefix == "ref":
-        return ref_annotation
-    else:
-        # return rules.manual_filter.output.gtf
-        return expand(step02.path("transcriptome_assembly/{dataset}.{group}.{merge_method}.annotated.clean.gtf"), dataset = parts[0], group = parts[1], merge_method = parts[2])[0]
-
-def pigeon_prepare_input(wildcards):
-    parts = wildcards.prefix.split(".")
-
-    if wildcards.prefix == "ref":
-        return ref_annotation
-    elif wildcards.prefix == "gencode":
-        return expand(rules.manual_filter.output.gtf, dataset = wildcards.prefix, group = "none", merge_method = "ref")[0]
-    else:
-        return expand(rules.manual_filter.output.gtf, dataset = parts[0], group = parts[1], merge_method = parts[2])[0]
+    dataset, group, merge_method = wildcards.prefix.split(".")
+    return expand(rules.manual_filter.output.gtf, dataset = dataset, group = group, merge_method = merge_method)[0]
 
 ## Rules
 ################################################################################

@@ -8,7 +8,7 @@
 #
 # txendcutr also needs a GitHub-only package installed post-solve — see
 # r.post-deploy.sh.
-name: r-bioc2
+name: r-endome
 channels:
   - conda-forge
   - bioconda

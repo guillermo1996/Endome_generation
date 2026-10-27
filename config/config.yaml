@@ -8,18 +8,66 @@
 # 01. WHAT TO RUN
 ############################
 
-## ENDome generation steps
-input_dataset: ["Wood"] # Long-read dataset: Wood | Ebbert
-input_group: ["control"] # Sample group within the dataset: control | case | control_case
-trunc_site: ["3p", "5p"] # Truncation site: 3p | 5p
-trunc_width: [500, 300] # Window size (bp) around truncation site
+## Inputs
+pipeline_defaults:
+  # Dataset defaults
+  group: "none"
+  # Defaults: Step 02 - Transcriptome Assembly
+  merge_preset: ["st_ref"]
+  # Defaults: Step 03 - Artifact Removal
+  skip_pigeon_filter: False
+  # Defaults: Step 04 - ORF Identification
+  orf_filter_preset: ["pc_novel"]
+  # Step 05 defaults
+  trunc_site: ["3p", "5p"]
+  trunc_width: [500, 300]
+  # Defaults: Step 07 - UTR Usage
+  pseudobulk_preset: "default"
+  satuRn_preset: "default"
+  # Custom entry points
+  pre-assembled_gtf: null # Input a custom GTF to skip transcriptome assembly
+  pre-truncated_gtf: null # Input a custom truncated GTF to skip truncation
+  pre-truncated_merge_tsv: null # Input a custom truncated merge TSV to skip truncation
 
-merge_preset: ["st_ref"] # Transcript merging: st_* = StringTie, iso_* = isomatch
-orf_filter_preset: ["ref_pc", "pc_novel"] # Transcripts kept after ORF identifications
+pipeline_inputs:
+  - dataset: "Wood"
+    group: "control"
+    trunc_site: ["3p", "5p"]
+    trunc_width: [500, 300]
+  - dataset: "gencode"
+    pre-assembled_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
+    skip_pigeon_filter: True
+    trunc_site: "5p"
+    trunc_width: 500 
+  - dataset: "gencode_3UTR"
+    pre-truncated_gtf: "data/custom_inputs/gencode.v48.pc_3UTR.gtf"
+    trunc_site: "3p" # only for naming purposes
+    trunc_width: "UTR" # only for naming purposes
+    
+############################
+# 02. TOOL PRESETS
+############################
 
-## UTR Usage steps
-pseudobulk_preset: ["default", "dynamic"]
-satuRn_preset: ["default", "raw"]
+## Step 01 - Alignment
+minimap2_preset: default
+
+## Step 02 - Transcriptome Assembly
+stringtie_assembly_preset: unguided
+gffcompare_preset: default
+
+## Step 03 - Artifact Removal
+pigeon_preset: default
+
+## Step 04 - ORF Identification
+orfannotate_preset: default
+
+## Step 05 - Truncation
+txendcutr_preset: default
+mmseqs2_preset: default
+scoring_preset: default
+
+## Step 06 - UTR Quantification
+scUTRquant_preset: default
 
 ############################
 # 03. PATHS
@@ -30,7 +78,7 @@ ref_genome: "/home/MinaRyten/Guillermo/Resources/Genome/GRCh38.primary_assembly.
 ref_annotation: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
 
 ## Output directories
-main_output_path: "debug_results"
+main_output_path: "results"
 log_path: ".logs"
 benchmark_path: ".benchmarks"
 
@@ -54,7 +102,7 @@ input_endome_samples: "data/endome_input_samples.tsv"
 ## them for a new dataset: docs/UTR_quantification_and_usage.md
 sc_dataset:
   # Step 06: scUTRquant sample sheet and config template
-  sample_sheet: "data/Hardy_snRNAseq/sample_sheet.csv"
+  sample_sheet: "data/Hardy_snRNAseq/sample_sheet_ACG.csv"
   scUTRquant_config_template: "config/scUTRquant_config.yaml"
 
   # Step 07: cell annotation and sample tables (TSV, built by T07a for Hardy)
@@ -69,36 +117,11 @@ sc_dataset:
   covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
 
 ############################
-# 02. TOOL PRESETS
-############################
-
-## 01 - Alignment
-minimap2_preset: default
-
-## 02 - Transcriptome Assembly
-stringtie_assembly_preset: unguided
-gffcompare_preset: default
-
-## 03 - Artifact Removal
-pigeon_preset: default
-
-## 04 - ORF Identification
-orfannotate_preset: default
-
-## 05 - Truncation
-txendcutr_preset: default
-mmseqs2_preset: default
-scoring_preset: default
-
-## 06 - UTR Quantification
-scUTRquant_preset: default
-
-############################
 # 05. RUN BEHAVIOUR
 ############################
 
 ## Output folder hashing
-use_hash: True
+use_hash: False
 
 ## Testing / dev mode
 debug: False

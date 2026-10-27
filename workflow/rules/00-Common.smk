@@ -8,6 +8,7 @@ import json
 import hashlib
 import yaml
 import copy
+import itertools
 
 from sys import stderr
 from pathlib import Path
@@ -37,25 +38,117 @@ global_extra_params = {}
 registered_steps = []
 
 ################################################################################
-## Load the long-read sample sheet
+## Load the pipeline inputs
 ################################################################################
-endome_samples = pd.read_csv(config["input_endome_samples"], sep = "\t", dtype = str)
+### Config keys of pipeline_inputs and their wildcard in the file names
+wildcard_names = {
+    "merge_preset": "merge_method",
+    "orf_filter_preset": "orf_filter",
+    "trunc_site": "txEnd",
+    "trunc_width": "width",
+    "pseudobulk_preset": "pseudobulk_method",
+    "satuRn_preset": "saturn_method",
+}
 
-### Ensure all data is provided
-_required_cols = ["dataset", "group", "sample_id", "file_type", "path"]
-_missing_cols = set(_required_cols) - set(endome_samples.columns)
-if _missing_cols:
-    raise ValueError(f"Missing columns in {config['input_endome_samples']}: {sorted(_missing_cols)}")
+def as_list(value) -> list:
+    return value if isinstance(value, list) else [value]
 
-### Ensure data is valid
-_selected = endome_samples[endome_samples["dataset"].isin(config.get("input_dataset", []))]
-if not _selected["file_type"].isin(["fastq", "bam"]).all():
-    raise ValueError(f"file_type must be `fastq` or `bam` for every sample of the selected dataset")
-if _selected["path"].isna().any():
-    raise ValueError(f"Samples without a path: {_selected[_selected["path"].isna()]['sample_id'].tolist()}")
-if _selected.duplicated(["dataset", "sample_id"]).any():
-    raise ValueError(f"sample_id must be unique within a dataset")
+def build_endome_table(defaults: dict, inputs: list) -> pd.DataFrame:
+    """One row per ENDome to build. Every key becomes a column, and keys given as a list are combined."""
+    rows = []
+    for entry in inputs:
+        entry = {**defaults, **entry}
+        if entry["pre-assembled_gtf"] or entry["pre-truncated_gtf"]:
+            entry["merge_preset"] = "ext"
+        if entry["pre-truncated_gtf"]:
+            entry["orf_filter_preset"] = "ext"
 
+        values = {key: as_list(value) for key, value in entry.items()}
+        rows += [dict(zip(values, combo)) for combo in itertools.product(*values.values())]
+
+    table = pd.DataFrame(rows, dtype = object).rename(columns = wildcard_names)
+    table["width"] = table["width"].astype(str)
+    table["prefix"] = table["dataset"] + "." + table["group"] + "." + table["merge_method"]
+    table["endome_name"] = table["prefix"] + "." + table["orf_filter"] + ".w" + table["width"] + "." + table["txEnd"]
+    table["has_orfs"] = table["pre-truncated_gtf"].isna()
+
+    ### First step each entry runs: pre-truncated GTFs start at 05, pre-assembled GTFs at 02 (manual_filter)
+    table["first_step"] = 1
+    table.loc[table["pre-assembled_gtf"].notna(), "first_step"] = 2
+    table.loc[table["pre-truncated_gtf"].notna(), "first_step"] = 5
+
+    return table.drop_duplicates().reset_index(drop = True)
+
+def table_axes(*cols, where = None) -> dict:
+    """Unique rows of `cols` as lists, for expand(template, zip, **table_axes(...)).
+    With `where`, only the rows where that True/False column is True."""
+    table = endome_table if where is None else endome_table[endome_table[where]]
+    sub = table[list(cols)].drop_duplicates()
+    return {col: sub[col].tolist() for col in cols}
+
+def get_input_setting(prefix: str, key: str):
+    """Value of `key` in pipeline_inputs for one transcriptome (dataset.group.merge_method)"""
+    values = endome_table.loc[endome_table["prefix"] == prefix, key]
+    if values.empty:
+        raise ValueError(f"'{prefix}' is not in pipeline_inputs: check the dataset, group and entry point of the requested file")
+    return values.iloc[0]
+
+################################################################################
+## Long-read sample sheet
+################################################################################
+def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) -> pd.DataFrame:
+    """Load and check the long-read sample sheet.
+
+    Only the entries of ``pipeline_inputs`` without a ``gtf`` start from reads.
+    Without them the sheet is not read, so ``input_endome_samples`` can be
+    missing or null.
+
+    Args:
+        endome_table (pd.DataFrame): Output of ``build_endome_table()``.
+        sample_sheet (str): Path of the sample sheet (``input_endome_samples``).
+
+    Returns:
+        pd.DataFrame: The sample sheet, or an empty table with its columns when
+        no entry starts from reads.
+
+    Raises:
+        ValueError: If the sheet is needed but missing, or its content is invalid.
+    """
+    required_cols = ["dataset", "group", "sample_id", "file_type", "path"]
+
+    ### Only the entries without a pre-assembled or pre-truncated GTF start from reads
+    from_reads = endome_table["pre-assembled_gtf"].isna() & endome_table["pre-truncated_gtf"].isna()
+    read_inputs = endome_table.loc[from_reads, ["dataset", "group"]].drop_duplicates()
+
+    if read_inputs.empty:
+        return pd.DataFrame(columns = required_cols)
+
+    if not sample_sheet or not Path(sample_sheet).is_file():
+        raise ValueError(f"Entries without `pre-assembled_gtf` start from reads, so `input_endome_samples` must point to "
+                         f"the long-read sample sheet (got: {sample_sheet})")
+    samples = pd.read_csv(sample_sheet, sep = "\t", dtype = str)
+
+    ### Ensure all data is provided
+    missing_cols = set(required_cols) - set(samples.columns)
+    if missing_cols:
+        raise ValueError(f"Missing columns in {sample_sheet}: {sorted(missing_cols)}")
+
+    ### Ensure data is valid (only for the datasets that are run)
+    selected = samples[samples["dataset"].isin(read_inputs["dataset"])]
+    if not selected["file_type"].isin(["fastq", "bam"]).all():
+        raise ValueError(f"file_type must be `fastq` or `bam` for every sample of the selected datasets")
+    if selected["path"].isna().any():
+        raise ValueError(f"Samples without a path: {selected[selected['path'].isna()]['sample_id'].tolist()}")
+    if selected.duplicated(["dataset", "sample_id"]).any():
+        raise ValueError(f"sample_id must be unique within a dataset")
+
+    ### Every dataset x group that starts from reads has samples
+    for dataset, group in read_inputs.itertuples(index = False):
+        group_list = ["control", "case"] if group == "control_case" else [group]
+        if not ((selected["dataset"] == dataset) & selected["group"].isin(group_list)).any():
+            raise ValueError(f"No samples for {dataset}.{group} in {sample_sheet}. "
+                             f"Check `group` in pipeline_inputs, or add a `pre-assembled_gtf` if it is an external transcriptome")
+    return samples
 
 ################################################################################
 ## Helper Functions - For Analysis
@@ -79,9 +172,12 @@ def get_input_sample(wildcards) -> pd.Series:
     return samples_df[samples_df["sample_id"] == wildcards.sample].iloc[0]
 
 def generate_param_files():
-    """List the ``parameters.yaml`` targets of every registered step to request in ``rule all``
-    """
-    return [target for step in registered_steps for target in expand(step.path("parameters.yaml"), dataset=input_dataset, group=input_group)]
+    """``parameters.yaml`` of every registered step, for the datasets that run it"""
+    targets = []
+    for step in registered_steps:
+        rows = endome_table.loc[endome_table["first_step"] <= int(step.name[:2]), ["dataset", "group"]].drop_duplicates()
+        targets += expand(step.path("parameters.yaml"), zip, dataset = rows["dataset"].tolist(), group = rows["group"].tolist())
+    return targets
 
 ################################################################################
 ## Helper Functions - For Snakemake

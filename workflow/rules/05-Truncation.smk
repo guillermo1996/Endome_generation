@@ -25,6 +25,8 @@ scoring_settings = config.get("scoring_settings", {}).get("default")
 
 ## Truncation Rules
 ################################################################################
+ruleorder: import_truncated_gtf > txendcutr_truncation
+
 rule txendcutr_truncation:
     message: """--- Transcriptome Truncation ---"""
     input:
@@ -43,6 +45,22 @@ rule txendcutr_truncation:
     conda: "../envs/r.yaml"
     threads: 12
     script: "../scripts/{params.script}" # Modified `txendcutr.R` script to include my version of the package
+
+rule import_truncated_gtf:
+    message: "--- Importing the pre-truncated GTF of {wildcards.prefix} ---"
+    input:
+        gtf = lambda wc: get_input_setting(wc.prefix, "pre-truncated_gtf"),
+        merge_tsv = lambda wc: get_input_setting(wc.prefix, "pre-truncated_merge_tsv") or [],
+    output:
+        gtf = rules.txendcutr_truncation.output.gtf,
+        fa = rules.txendcutr_truncation.output.fa,
+        merge_table = rules.txendcutr_truncation.output.merge_table
+    params:
+        genome = txendcutr_settings["genome"]
+    wildcard_constraints:
+        orf_filter = "ext"
+    conda: "../envs/r.yaml"
+    script: "../scripts/S05e-Import_Truncated_GTF.R"
 
 ## Bin Information Content Rules
 ################################################################################
@@ -77,7 +95,7 @@ rule endome_mmseqs_search:
         coverage = mmseq2_settings["coverage"],
         cov_mode = mmseq2_settings["cov_mode"]
     conda: "../envs/mmseqs2.yaml"
-    threads: 64
+    threads: 32
     shadow: "minimal"
     shell:
         """
