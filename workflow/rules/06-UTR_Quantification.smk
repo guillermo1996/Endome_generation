@@ -1,5 +1,5 @@
 ################################################################################
-## 06 - UTR Quantification
+## UTR Quantification
 ################################################################################
 ## Quantifies every ENDome on the single-cell dataset (config "sc_dataset") with
 ## scUTRquant
@@ -138,6 +138,7 @@ rule run_scUTRquant:
         sce = expand(step06.path("data/sce/{endome_name}/{dataset_name}.{output_type}.Rds"),
             dataset_name=scUTRquant_dataset_name, output_type=scUTRquant_output_types, allow_missing=True),
     log: step06.logs("scUTRquant/{endome_name}.run_scUTRquant.log")
+    benchmark: step06.benchmark("scUTRquant/{endome_name}.run_scUTRquant.tsv")
     threads: 36
     params:
         workdir = lambda w: str(step06.path()).format(dataset=w.dataset, group=w.group),

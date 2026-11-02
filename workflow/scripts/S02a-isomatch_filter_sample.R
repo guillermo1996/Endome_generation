@@ -2,27 +2,30 @@
 
 ## _________________________________________________
 ##
-## Isomatch Sample Filter
+## Isomatch sample filter
 ##
-## Removes low-abundance transcripts from a StringTie sample assembly
-## before it is indexed and merged by isomatch. It reproduces the input
-## filter of `stringtie --merge` (-F min_fpkm, -T min_tpm; both 1.0 by
-## default in StringTie 3.0.0)
+## Aim: Remove the low-abundance transcripts of a StringTie sample assembly
+## before it is indexed and merged by isomatch
 ##
 ## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S02a-isomatch_filter_sample
 ## Date Created: 2026-09-29
+##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
 ## Email: guillermorocamora@gmail.com
 ##
-## Latest version: v1.0 (2026-09-29)
+## Latest Version: v1.1 (2026-10-28)
+##
 ## _________________________________________________
 ##
-## - Notes:
+## Notes:
+##    - Reproduces the input filter of `stringtie --merge` (-F min_fpkm and
+##      -T min_tpm, both 1.0 by default in StringTie 3.0.0).
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
-## - Changelog:
-##   + v1.0 (2026-09-29): first version.
-##
-## - Please contact guillermorocamora@gmail.com for further assistance.
+## Changelog:
+##    - v1.1 (2026-10-28): Standardization of the script.
+##    - v1.0 (2026-09-29): Initial version.
 ## _________________________________________________
 
 ############################################################################## #
@@ -30,7 +33,6 @@
 
 #----------------------------------------------------------------------------- #
 ## 0.0 Define Snakemake interactive parameters ----
-
 if (interactive()) {
   library(methods)
   Snakemake <- setClass(
@@ -40,43 +42,68 @@ if (interactive()) {
       output = 'list',
       params = 'list',
       wildcards = 'list',
-      threads = 'numeric'
-    )
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
   )
-  ## dataset.group.merge_method folder created by the `test_data` rule. Sample
-  ## assemblies are not linked by it: copy one there as test.stringtie_sample.gtf
-  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+
+  rs <- "results/Wood.control"
+  merge_method <- "iso_ref"
+  sample <- "LIB01_PDC029_F_CTX"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
+
   snakemake <- Snakemake(
-      input = list(gtf = file.path(test_dir, "test.stringtie_sample.gtf")),
-      output = list(gtf = file.path(test_dir, "interactive.isomatch_filter_sample.gtf")),
-      params = list(min_fpkm = 1, min_tpm = 1),
-      wildcards = list(sample = "test"),
-      threads = 1
+    input = list(
+      gtf = file.path(rs, "02-Transcriptome_Assembly/StringTie_Sample_Assembly", paste0(sample, ".gtf"))
+    ),
+    output = list(
+      gtf = file.path(rs, "temp", sprintf("%s.%s.filter.gtf", merge_method, sample))
+    ),
+    params = list(
+      min_fpkm = 1,
+      min_tpm = 1
+    ),
+    wildcards = list(
+      merge_method = merge_method,
+      sample = sample
+    ),
+    threads = 1,
+    scriptdir = "workflow/scripts"
   )
 }
 
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
-suppressMessages({
+shhh <- suppressPackageStartupMessages
+shhh({
   library(rtracklayer)
+  library(conflicted)
   library(tidyverse)
 })
 
-## Package options - these are some examples and do not modify the script usage.
-options(dplyr.summarise.inform = FALSE)
-options(lifecycle_verbosity = "warning")
+## Package options
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+## Solve possible conflicts between packages
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
+
+#----------------------------------------------------------------------------- #
+## 0.2 Script Parameters ----
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+params <- snakemake@params
+wc <- snakemake@wildcards
+
+min_fpkm <- as.numeric(params$min_fpkm)
+min_tpm <- as.numeric(params$min_tpm)
 
 ############################################################################## #
 # ---- 1. Filter the sample assembly ----
+gr <- rtracklayer::import(smk_inputs$gtf)
 
-## Import the StringTie sample assembly. FPKM and TPM are only set on the
-## transcript features.
-gr <- rtracklayer::import(snakemake@input$gtf)
-sample_name <- as.character(snakemake@wildcards$sample)
-min_fpkm <- as.numeric(snakemake@params$min_fpkm)
-min_tpm <- as.numeric(snakemake@params$min_tpm)
-
-## Transcripts passing both thresholds
+### FPKM and TPM are only set on the transcript features
 kept_tx <- mcols(gr) %>%
   tibble::as_tibble() %>%
   dplyr::filter(type == "transcript") %>%
@@ -85,8 +112,9 @@ kept_tx <- mcols(gr) %>%
   dplyr::pull(transcript_id)
 
 message(sprintf("Kept %d of %d transcripts in sample %s (FPKM >= %s and TPM >= %s)",
-                length(kept_tx), sum(gr$type == "transcript"), sample_name, min_fpkm, min_tpm))
+                length(kept_tx), sum(gr$type == "transcript"), wc$sample, min_fpkm, min_tpm))
 
-## Keep the transcripts and their exons, and export the filtered assembly
+############################################################################## #
+# ---- 2. Output the GTF ----
 gr <- gr[gr$transcript_id %in% kept_tx]
-export(gr, snakemake@output$gtf, format = "gtf")
+rtracklayer::export(gr, smk_outputs$gtf, format = "gtf")

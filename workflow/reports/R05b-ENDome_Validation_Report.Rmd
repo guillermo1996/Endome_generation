@@ -1,0 +1,336 @@
+---
+title: ENDome Validation
+subtitle: Read support, structural categories and overlap with the reference
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL / Cambridge - Version 0.1
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+always_allow_html: true
+link-citations: true
+notes-after-punctuation: false
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+# Libraries, options and knitr defaults (as in R05a)
+```
+
+```{r setup-theme, echo = FALSE, results = "asis"}
+# grpSciRmdTheme, kableExtra dependency, custom CSS and theme_endome() (as in R05a)
+```
+
+```{r snakemake-preamble, echo = FALSE}
+# Interactive Snakemake object pointing to data/test_data/<dataset>.<group>.<merge_method>
+```
+
+<details>
+<summary><b>Report plan (development notes, remove when the report is finished)</b></summary>
+
+<br>
+
+**Purpose.** One report per transcriptome (`{dataset}.{group}.{merge_method}`) that validates every ENDome built from it, across all the configured ORF filters, truncation widths and truncation sites. It covers four questions: (1) are the assembled transcripts supported by public long-read data (Isopedia), (2) how do the structural categories change from step 02 to step 05, (3) how much of each ENDome overlaps the GENCODE ENDome built with the same settings, and (4) how independent the 5' and 3' ENDomes are. It replaces `R02a-Isopedia_Report.Rmd` (and the `isopedia_report` rule). The Bin Information Content report (R05a) and the satuRn report (R07b) are not modified.
+
+**Origin.** Based on `41-ENDome_generation_extra/Deprecated/RMarkdown/R01a-GTF_Overlap.Rmd` and `R01b-GTF_Overlap.Rmd`. These studied the 5' vs 3' independence (motivated by the high pseudoalignment rate of 3' snRNA-seq on the 5' ENDome), not the overlap with the reference. What is reused:
+
++ `measure_overlap()`: per query transcript, `sequence_pct` (share of its bases covered by any exon of the subject set, the main metric) and `best_pct` (share covered by the single best subject transcript).
++ Overlap strength bins: none (0%), low (≤ 20%), medium (≤ 70%), high (< 100%) and full (100%).
++ Transcript categories (self, single or multiple subject transcripts) and gene categories (same, different or multiple genes).
++ The GENCODE baseline truncated with the same settings, and the comparison over a grid of widths.
+
+What is not ported: the overlap-removal pseudoalignment test (one-off and inconclusive, it belongs in 41) and the MANE Select baseline (needs an extra truncation run). The helper file sourced by R01b (`R/Phf-Endome/hf_transcript_overlap.R`) no longer exists, and the inline version of R01a has bugs (a stray assignment before the function, `exon_overlaps` returned instead of `exon_overlap`). The functions should be rewritten in `workflow/lib/Phf-Transcript_Overlap.R` and tested in `41/R/` first.
+
+**Software.**
+
++ **Structural categories, steps 02 to 04: pigeon** (already run in step 03). `pigeon_classify` classifies the whole step 02 assembly, and every later stage is a subset of those transcripts, so the categories at each stage are a join by transcript id. They are the same categories the step 03/04 filters use, and the same SQANTI3 scheme as the manuscript. `filtered_lite_reasons.txt` gives the reason of each step 03 removal. Re-running SQANTI3 would add a heavy environment for the same categories.
++ **Truncated ENDomes, step 05: `isomatch classify`** against the GENCODE ENDome with the same width and site. It accepts any GTF, is already downloaded, and returns SQANTI3-style categories plus `diff_to_tss`/`diff_to_tes`. The distance to the matched GENCODE start is the key number of a 5' ENDome. Caveat: truncated windows are short (Wood `st_ref` `pc_novel`: 31% of the 5' w300 windows and 47% of the 3' w500 windows are mono-exonic), so the categories are coarse. The bp overlap and the end distances lead, the categories are secondary.
++ **`gffcompare`**: kept for its `.stats` table (sensitivity and precision at base, exon, intron, intron chain, transcript and locus level) and its `.tmap` (best reference match per query transcript). isomatch has no equivalent of the `.stats` table.
+
+**Layout.** Each section is split by the settings its content depends on. Overviews across every configuration come first, details go in tabs, and 5' tabs go before 3' tabs.
+
+| Section | Depends on | Layout |
+|---|---|---|
+| Run information | ORF filter × width × site | Nested tabs (ORF filter, then truncation) |
+| Transcriptome assembly (02), artifact removal (03) | Nothing | No tabs |
+| Isopedia validation | Nothing (02 assembly), stages joined by id | No tabs, stages as facets |
+| ORF filtration (04) | ORF filter | One tab per ORF filter, plus a table over all |
+| Truncation (05), overlap with the GENCODE ENDome | ORF filter × width × site | Nested tabs |
+| 5' vs 3' overlap | ORF filter × width | One tab per ORF filter, same-width pairs |
+
+The nested tabs reuse `renderTabsetByRun()` from R07b with its `level` argument: the outer loop writes `### <orf_filter> {.tabset}`, the inner loop the `####` truncation tabs.
+
+**Findings in `debug_results`.** Comparison of the pre-truncation transcriptome (step 04) with GENCODE, as reported in the revised manuscript (98.5% full-splice matches, 19.0% alternative 3' ends). Alternative 5' and 3' ends both include `alternative_3end5end`.
+
+| Transcriptome | ORF filter | Transcripts | FSM | Alt. 5' end | Alt. 3' end | Reference match |
+|---|---|---|---|---|---|---|
+| Wood `st_ref` | none | 403,030 | 93.3% | 18.2% | 15.5% | 54.3% |
+| Wood `st_ref` | `ref_pc` | 81,685 | 100% | 24.0% | 21.1% | 53.2% |
+| Wood `st_ref` | `pc_novel` | 188,796 | 89.7% | 21.8% | 18.6% | 45.7% |
+| Ebbert `st_ref` | `ref_pc` | 81,522 | 100% | 21.7% | 25.6% | 51.1% |
+| Ebbert `st_ref` | `pc_novel` | 177,732 | 96.9% | 23.1% | 24.9% | 44.9% |
+| Ebbert `iso_ref` | none | 410,235 | 94.5% | 1.3% | 1.1% | 86.0% |
+| Ebbert `iso_ref` | `ref_pc` | 80,310 | 100% | 0.0% | 0.0% | 98.3% |
+| Ebbert `iso_ref` | `pc_novel` | 170,533 | 96.8% | 0.0% | 0.0% | 92.3% |
+
++ FSM % is only informative for the novel filters: `ref_pc` is 100% FSM by definition. For `ref_pc`, report the alternative ends.
++ Report the alternative 5' ends next to the 3' ones (5'-first project).
++ `iso_ref` collapses the merged transcripts onto the reference ends: almost no alternative ends remain. To check with `iso_ref_long` (`--tss-policy longer --tes-policy longer`).
++ Both merges keep every GENCODE transcript regardless of long-read support (376k of the 403k Wood `st_ref` transcripts are FSM). The reference match share is an upper bound until `st_*` has a support column.
+
+**Isopedia.** Isopedia queries the full step 02 assembly once (`isopedia_isoform`). Every later stage is a subset of those transcripts, and a bin is a set of them (`merge.tsv`), so the detection of every stage and ENDome is a join by transcript id, with no extra query. A truncated GTF should not be queried: the windows do not have the intron chain of the full-length reads. Wood `st_ref` results (raw `isopedia.tsv.gz`, detected = at least one full-splice-match read in at least one of the 1,007 samples):
+
+| Stage | Transcripts / bins | Detected |
+|---|---|---|
+| 02 assembly, reference | 385,267 | 65.7% |
+| 02 assembly, novel | 34,725 | 64.0% |
+| 03 removed by pigeon, reference / novel | 7,886 / 9,076 | 35.7% / 46.7% |
+| 03 kept, reference / novel | 377,381 / 25,649 | 66.3% / 70.0% |
+| 04 `ref_pc` | 81,685 | 81.4% |
+| 04 `pc_novel` (novel only) | 188,796 (19,301) | 74.7% (73.1%) |
+| 05 `ref_pc` w300 5', bins with any / all members detected | 40,549 | 80.2% / 72.7% |
+| 05 `pc_novel` w300 5', bins with any / all members detected | 90,222 | 73.3% / 65.1% |
+
++ **Each filter enriches for supported transcripts**, which is the main validation message: pigeon removes transcripts with half the detection of the kept ones, and the ORF filters raise it further.
++ **A third of the GENCODE transcripts kept by the merge have no read in 1,007 samples.** Among the FSM transcripts, `reference_match` is detected less (62.3%) than `alternative_5end` (76.1%) and `alternative_3end` (72.9%): the unsupported references sit in `reference_match`. Isopedia can stand in for the missing `st_*` support column.
++ **By category** (novel transcripts): `novel_in_catalog` 91.7%, `incomplete-splice_match` 99.1%, `novel_not_in_catalog` 53.8%, `intergenic` 53.9%, `fusion` 51.1%. NNC transcripts are the ones to look at.
++ **Brain samples**: 186 of the 1,007 index samples, but the `tissue` labels are not normalised (`brain`/`Brain`, `blood`/`Blood`, `kidney`/`Kidney`). `S02c-Isopedia_Summary.R` should lower-case the `group_by` column before grouping. Detection restricted to brain samples is the fairer number for brain ENDomes.
++ **Not computed yet**: the TSS/TES support of the FSM reads (`frac_tss`/`frac_tes`, from the FORMAT columns parsed by `S02c`). For a 5' ENDome, the key question is whether the alternative 5' ends are supported by reads that start there.
++ **Moved out**: the within-gene abundance section of R02a belongs in the Bin Information Content report (member weights).
+
+**Inputs.** `{p}` = `{dataset}.{group}.{merge_method}`.
+
+| Section | Input | Rule | Status |
+|---|---|---|---|
+| Assembly | `transcriptome_assembly/{p}.annotated.clean.gtf` | `manual_filter` | Exists |
+| Assembly | Long-read support per transcript | `isomatch_fix` (`iso_*`), `stringtie_support` (`st_*`) | `st_*` is new |
+| Assembly | gffcompare `.stats` of the clean GTF vs GENCODE | `gffcompare_validation` | New |
+| Isopedia | `isopedia.samples.tsv`, `isopedia.transcripts.tsv.gz`, `isopedia.groups.tsv.gz` | `isopedia_summary` | Exists, optional |
+| Structural categories | `pigeon_classification.txt`, `filtered_lite_classification.txt`, `filtered_lite_reasons.txt` | `pigeon_classify`, `pigeon_filter` | Exists |
+| Structural categories | `isoform_summary.tsv`, `{orf_filter}.orf_filter.gtf` per ORF filter | `ORF_categorization`, `ORF_filtration` | Exists |
+| Structural categories | `txendcutr.gtf`, `merge.tsv` per ORF filter × width × site | `txendcutr_truncation` | Exists |
+| GENCODE overlap | GENCODE ENDome GTF per width × site (`gencode.none.ref.ref_pc`) | `txendcutr_truncation` | Exists (runs GENCODE through 02 to 05) |
+| GENCODE overlap, 5' vs 3' | isomatch classification, gffcompare `.stats`/`.tmap` per ENDome | `endome_compare` | New |
+| GENCODE overlap, 5' vs 3' | bp overlap TSV per ENDome | `endome_overlap` (`S05e-ENDome_Overlap.R`) | New |
+
+**New rules.**
+
+1. `gffcompare_validation` (02): `gffcompare -r ref_annotation` on the clean GTF of every merge method (the existing `gffcompare` rule only runs on StringTie merges, before the chromosome filter).
+2. `stringtie_support` (02, optional): `gffcompare -r merged.gtf <sample GTFs>`, samples per merged transcript from the `.tracking` file.
+3. `endome_compare` (05): `isomatch classify --ref-gtf <subject>` and `gffcompare -r <subject>` on the ENDome GTF, with `{vs}` = `gencode` or `opposite_end`.
+4. `endome_overlap` (05): bp overlap (`S05e-ENDome_Overlap.R`) with the same `{vs}` wildcard.
+5. `endome_validation_report` (this report): wildcards `{dataset}.{group}.{merge_method}`, inputs expanded over `orf_filter_preset × trunc_width × trunc_site` with `allow_missing=True`. A target rule `endome_validation` expands it over `input_dataset × input_group × merge_preset`.
+
+**Open decisions.**
+
++ Isopedia: config switch, or always on? (The pre-built index is 305 GB.)
++ `stringtie_support` now, or a "no support data" note for `st_*`?
++ One `endome_compare`/`endome_overlap` rule with the `{vs}` wildcard, or separate GENCODE and 5' vs 3' rules?
++ Per-transcript overlap tables as TSV, or as a new table of the ENDome DuckDB (schema/DBML update)?
+
+</details>
+
+# Introduction
+
+<!-- What the report validates and why: support, structure and independence of the ENDomes built from one transcriptome. -->
+
+<!-- The three comparison sets: the GENCODE annotation (steps 02 to 04), the GENCODE ENDome with the same settings (step 05) and the opposite-end ENDome (step 05). -->
+
+<!-- Reading guide: overviews first, then one tab per configuration, 5' before 3'. -->
+
+## Data paths {-}
+
+```{r script-paths}
+# Snakemake inputs and outputs, helper library path
+```
+
+```{r script-paths-table, echo = FALSE}
+# Table of the resolved input paths, relative to main_path
+```
+
+## Report parameters {-}
+
+```{r script-params}
+# Wildcards, run_id, settings (pigeon, ORF filters, txendcutr, isopedia), overlap strength thresholds, colours
+```
+
+```{r configurations}
+# One row per ENDome (orf_filter, width, txEnd), tab labels and tab layout
+```
+
+## Loading the data {-}
+
+```{r helper-functions}
+# Formatting helpers, renderTabsetByRun(), Phf-Transcript_Overlap.R
+```
+
+```{r load-data}
+# Assembly GTF, pigeon classification (all, kept, reasons), isoform summary, ORF filter GTFs,
+# truncated GTFs and merge tables, gffcompare stats/tmap, isomatch classifications, overlap tables, Isopedia summaries
+```
+
+```{r stage-table}
+# One row per transcript x stage (02, 03, 04 per ORF filter, 05 per ENDome) with its structural category
+```
+
+## Changelog {.tabset -}
+
+### v0.1 {-}
+
++ Report skeleton.
+
+# Run information {.spacer}
+
+## Configurations
+
+```{r run-settings, results = "asis"}
+# Nested tabs: settings of each ENDome (ORF filter preset, txendcutr, step hashes)
+```
+
+## Transcripts and bins
+
+```{r run-counts}
+# One table over every configuration: transcripts at 02, 03, 04 and bins at 05
+```
+
+# Transcriptome assembly {.spacer}
+
+## Assembly summary
+
+```{r assembly-summary}
+# Transcripts, genes, exons per transcript, reference vs merge origin
+```
+
+## Comparison with GENCODE
+
+```{r assembly-gffcompare}
+# gffcompare .stats: sensitivity and precision by level
+```
+
+## Long-read support
+
+```{r assembly-support}
+# Samples per transcript (isom_sample_cnt or stringtie_support), reference transcripts without support
+```
+
+# Structural categories {.spacer}
+
+## From assembly to ENDome
+
+```{r categories-overview}
+# Stacked bars per stage (02, 03, 04 per ORF filter, 05 per ENDome), counts and proportions
+```
+
+## Artifact removal
+
+```{r categories-artifacts}
+# Kept vs removed by structural category, removal reasons
+```
+
+## ORF filtration {.tabset}
+
+```{r categories-orf-summary}
+# Table over every ORF filter: FSM, alternative 5' end, alternative 3' end, reference match
+```
+
+```{r categories-orf-tabs, results = "asis"}
+# One tab per ORF filter: categories, FSM subcategories, reference isoform status, biotypes
+```
+
+## Truncation {.tabset}
+
+```{r categories-bins-tabs, results = "asis"}
+# Nested tabs: bin composition (all reference, mixed, all novel), reference isoform status (as R05a)
+```
+
+# Isopedia validation {.spacer}
+
+## Index samples
+
+```{r isopedia-samples}
+# Samples per group (tissue), brain samples highlighted
+```
+
+## Detection by structural category
+
+```{r isopedia-categories}
+# Detected and EM-only transcripts by origin and structural category, FSM split by subcategory,
+# all samples vs brain samples only
+```
+
+## Detection through the pipeline
+
+```{r isopedia-stages}
+# Detection per stage: 02, 03 kept vs removed, 04 per ORF filter, 05 bins with a detected member
+```
+
+## End support
+
+```{r isopedia-ends}
+# TSS (first) and TES support of the FSM reads, alternative ends vs reference ends
+```
+
+## Most supported novel transcripts
+
+```{r isopedia-top-novel}
+# Searchable table of the novel transcripts with the most positive samples
+```
+
+# Overlap with the GENCODE ENDome {.spacer}
+
+## Overview
+
+```{r gencode-overview}
+# Every configuration: share of bins by overlap strength and by isomatch category
+```
+
+## Per configuration {.tabset}
+
+```{r gencode-tabs, results = "asis"}
+# Nested tabs, each with:
+#   - isomatch categories of the ENDome windows and distance to the GENCODE start (end for 3')
+#   - bp overlap: ENDome -> GENCODE (precision) and GENCODE -> ENDome on the expressed genes (sensitivity)
+#   - gffcompare .stats
+#   - transcript and gene overlap categories
+```
+
+# 5' vs 3' overlap {.spacer}
+
+<!-- Only rendered when both truncation sites are configured. -->
+
+## Overview
+
+```{r ends-overview}
+# Every ORF filter x width: share of transcripts by overlap strength, next to the GENCODE baseline
+```
+
+## Per configuration {.tabset}
+
+```{r ends-tabs, results = "asis"}
+# One tab per ORF filter, one nested tab per width: bp overlap in both directions, gffcompare .stats
+```
+
+# Methods {.spacer}
+
+<!-- Pigeon classification, isomatch classify, gffcompare, Isopedia query, bp overlap definitions and strength bins. -->
+
+# Session info {.spacer}
+
+<details>
+<summary>Show/hide</summary>
+
+```{r session-info, echo = FALSE}
+# sessioninfo::session_info()
+```
+
+</details>

@@ -1,38 +1,32 @@
+#!/usr/bin/env Rscript
+
 ## _________________________________________________
 ##
-## Process scUTRquant output: nucleus annotation and QC
+## Process the scUTRquant output
 ##
-## Aim: Match the nuclei of one scUTRquant SingleCellExperiment (one ENDome) to
-##      the cell annotation table, compute the effective number of transcripts
-##      of each nucleus and flag the nuclei that pass QC. The output is a
-##      nucleus table (no counts) that 07b uses to build the pseudobulk.
+## Aim: Match the nuclei of one scUTRquant SingleCellExperiment to the cell
+## annotation table, compute their effective number of transcripts and flag
+## the nuclei that pass QC
 ##
-## Project: ENDome generation - UTR Usage
-##
-## Author: Guillermo Rocamora Pérez (guillermorocamora@gmail.com)
-##
+## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S07a-Process_scUTRquant
 ## Date Created: 2026-10-06
 ##
-## Latest Version: v3.0 (2026-10-16)
-##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
+## Email: guillermorocamora@gmail.com
+##
+## Latest Version: v3.1 (2026-10-28)
 ##
 ## _________________________________________________
 ##
 ## Notes:
-##    - Input formats, outputs and the reasoning behind each step are described
-##      in docs/UTR_quantification_and_usage.md.
-##    - QC (effective_txs_mode):
-##        - "fixed": keep nuclei with effective_txs >= min_effective_txs.
-##        - "mad": keep nuclei above median - mad_below_median * MAD of
-##          log(effective_txs), computed per cell type.
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
 ## Changelog:
-##    - v3.0 (2026-10-16): Simplified. Reads the cell annotation table as TSV.
+##    - v3.1 (2026-10-28): Standardization of the script.
+##    - v3.0 (2026-10-16): Cell annotation table read as TSV.
 ##    - v2.0 (2026-10-15): Dataset-independent cell annotation table.
 ##    - v1.0 (2026-10-06): Initial version.
-##
-## Contact: guillermorocamora@gmail.com
 ## _________________________________________________
 
 ############################################################################## #
@@ -53,29 +47,31 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
-  test_dir <- "data/test_data/Ebbert.control.st_ref"
-  test_endome <- "ref_pc.w500.3p"
+
+  rs <- "results/Wood.control"
+  endome_name <- "Wood.control.st_ref.pc_novel.w500.3p"
+  pseudobulk_method <- "default"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
 
   snakemake <- Snakemake(
     input = list(
-      sce = file.path(test_dir, paste0("test.", test_endome, ".hardy_snRNAseq.txs.Rds")),
+      sce = file.path(rs, "06-UTR_Quantification/data/sce", endome_name, "hardy_snRNAseq.txs.Rds"),
       cell_annotations = "data/Hardy_snRNAseq/prepared/Hardy.cell_annotations.tsv.gz"
     ),
     output = list(
-      cells = file.path(test_dir, paste0("interactive.", test_endome, ".cells.tsv")),
-      qc = file.path(test_dir, paste0("interactive.", test_endome, ".cells_qc.tsv"))
+      cells = file.path(rs, "temp", sprintf("%s.%s.cells.tsv", endome_name, pseudobulk_method)),
+      qc = file.path(rs, "temp", sprintf("%s.%s.cells_qc.tsv", endome_name, pseudobulk_method))
     ),
     params = list(
       exclude_samples = c("gosot_ACG", "gosot_IPL"),
       effective_txs_mode = "fixed",
       min_effective_txs = 300,
-      mad_below_median = 3,
-      cell_type_level = "annotation_level_2"
+      mad_below_median = 3
     ),
     wildcards = list(
-      endome_name = paste0(basename(test_dir), ".", test_endome)
+      endome_name = endome_name,
+      pseudobulk_method = pseudobulk_method
     ),
-    log = list(),
     threads = 1,
     scriptdir = "workflow/scripts"
   )
@@ -84,17 +80,18 @@ if (interactive()) {
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
 shhh <- suppressPackageStartupMessages
-
 shhh({
-  library(conflicted)
-  library(tidyverse)
   library(Matrix)
   library(SingleCellExperiment)
+  library(conflicted)
+  library(tidyverse)
 })
 
+## Package options
 options(readr.show_progress = FALSE)
 options(readr.show_col_types = FALSE)
 
+## Solve possible conflicts between packages
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
 conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
@@ -109,20 +106,18 @@ exclude_samples <- as.character(unlist(params$exclude_samples))
 effective_txs_mode <- match.arg(params$effective_txs_mode, c("fixed", "mad"))
 min_effective_txs <- params$min_effective_txs
 mad_below_median <- params$mad_below_median
-cell_type_level <- params$cell_type_level
-
-dir.create(dirname(smk_outputs$cells), showWarnings = FALSE, recursive = TRUE)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Helper Functions ----
 
 #' Effective number of transcripts per nucleus
 #'
-#' 2^H, with H the Shannon entropy (bits) of the nucleus' bin counts. Same
-#' formula as compute_effective_count in the scUTRquant repository.
+#' 2^H, with H the Shannon entropy (bits) of the bin counts of the nucleus.
+#' Same as compute_effective_count in the scUTRquant repository.
 #'
-#' @param cts A bins x nuclei count matrix
-#' @return A numeric vector, one value per nucleus (NaN for empty nuclei)
+#' @param cts Bins x nuclei count matrix.
+#'
+#' @returns Numeric vector with one value per nucleus (NaN for empty nuclei).
 compute_effective_count <- function(cts) {
   cts <- as(cts, "CsparseMatrix")
   S <- Matrix::colSums(cts)
@@ -133,7 +128,7 @@ compute_effective_count <- function(cts) {
 }
 
 ############################################################################## #
-# ---- 1. Load inputs ----
+# ---- 1. Load the inputs ----
 
 #----------------------------------------------------------------------------- #
 ## 1.1 Cell annotation table ----
@@ -141,10 +136,10 @@ message("Loading the cell annotations: ", smk_inputs$cell_annotations)
 cell_annots <- readr::read_tsv(smk_inputs$cell_annotations, col_types = readr::cols(.default = readr::col_character()))
 
 missing_cols <- setdiff(c("library_id", "barcode", "sample_id", "celltype"), colnames(cell_annots))
-if (length(missing_cols) > 0) stop("Columns missing from the cell annotation table: ", paste(missing_cols, collapse = ", "))
+if (length(missing_cols) > 0) stop("Columns missing from the cell annotation table: ", paste(missing_cols, collapse = ", "), call. = FALSE)
 
-## scUTRquant names each nucleus "<library_id>_<barcode>". Cell Ranger barcodes
-## carry a "-1" suffix that scUTRquant does not use, so it is removed.
+### scUTRquant names each nucleus "<library_id>_<barcode>", without the "-1"
+### suffix of the Cell Ranger barcodes
 cell_annots <- cell_annots %>%
   dplyr::filter(!is.na(celltype), !sample_id %in% exclude_samples) %>%
   dplyr::mutate(barcode = sub("-\\d+$", "", barcode)) %>%
@@ -156,31 +151,32 @@ annotation_cols <- setdiff(colnames(cell_annots), c("cell_id", "library_id", "ba
 message("Loading the scUTRquant SCE: ", smk_inputs$sce)
 sce <- readRDS(smk_inputs$sce)
 
-## scUTRquant keeps every barcode above min_umis (mostly empty droplets): only
-## the annotated nuclei are kept. If none match, the library_id or barcode
-## format of the annotation table differs from scUTRquant's.
+### scUTRquant keeps every barcode above min_umis (mostly empty droplets). If
+### no nucleus matches, the library_id or barcode format differs.
 keep_cells <- colnames(sce) %in% cell_annots$cell_id
 if (!any(keep_cells)) {
   stop("No annotated nucleus is in the SCE. SCE nucleus: '", colnames(sce)[1],
-       "'; annotation table nucleus: '", cell_annots$cell_id[1], "'")
+       "'; annotation table nucleus: '", cell_annots$cell_id[1], "'", call. = FALSE)
 }
 message("  ", sum(keep_cells), " of ", nrow(cell_annots), " annotated nuclei found in the SCE (",
         ncol(sce), " barcodes in the SCE)")
 
 #----------------------------------------------------------------------------- #
-## 1.3 Per-nucleus metrics ----
+## 1.3 Nucleus metrics ----
 cts <- counts(sce)[, keep_cells, drop = FALSE]
 cells <- tibble::tibble(
   cell_id = colnames(cts),
   total_umis = Matrix::colSums(cts),
   effective_txs = compute_effective_count(cts)
 ) %>%
-  ## one-to-one: fails if a nucleus is annotated twice
   dplyr::inner_join(cell_annots, by = "cell_id", relationship = "one-to-one")
 rm(sce, cts); invisible(gc())
 
 ############################################################################## #
 # ---- 2. Effective-transcript QC ----
+
+### "fixed": a single threshold. "mad": median - k * MAD of log(effective_txs)
+### per cell type.
 if (effective_txs_mode == "fixed") {
   cells <- cells %>%
     dplyr::mutate(effective_txs_threshold = min_effective_txs)
@@ -196,7 +192,7 @@ cells <- cells %>%
 message("  ", sum(cells$pass_qc), " of ", nrow(cells), " nuclei pass the QC (mode: ", effective_txs_mode, ")")
 
 ############################################################################## #
-# ---- 3. Outputs ----
+# ---- 3. Write the outputs ----
 
 #----------------------------------------------------------------------------- #
 ## 3.1 Nucleus table ----

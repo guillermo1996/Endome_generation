@@ -40,7 +40,7 @@ registered_steps = []
 ################################################################################
 ## Load the pipeline inputs
 ################################################################################
-### Config keys of pipeline_inputs and their wildcard in the file names
+### Config keys of pipeline_runs and their wildcard in the file names
 wildcard_names = {
     "merge_preset": "merge_method",
     "orf_filter_preset": "orf_filter",
@@ -67,7 +67,8 @@ def build_endome_table(defaults: dict, inputs: list) -> pd.DataFrame:
         rows += [dict(zip(values, combo)) for combo in itertools.product(*values.values())]
 
     table = pd.DataFrame(rows, dtype = object).rename(columns = wildcard_names)
-    table["width"] = table["width"].astype(str)
+    ### trunc_width: null keeps the full transcripts (no truncation)
+    table["width"] = table["width"].apply(lambda width: "full" if width is None else str(width))
     table["prefix"] = table["dataset"] + "." + table["group"] + "." + table["merge_method"]
     table["endome_name"] = table["prefix"] + "." + table["orf_filter"] + ".w" + table["width"] + "." + table["txEnd"]
     table["has_orfs"] = table["pre-truncated_gtf"].isna()
@@ -87,10 +88,10 @@ def table_axes(*cols, where = None) -> dict:
     return {col: sub[col].tolist() for col in cols}
 
 def get_input_setting(prefix: str, key: str):
-    """Value of `key` in pipeline_inputs for one transcriptome (dataset.group.merge_method)"""
+    """Value of `key` in pipeline_runs for one transcriptome (dataset.group.merge_method)"""
     values = endome_table.loc[endome_table["prefix"] == prefix, key]
     if values.empty:
-        raise ValueError(f"'{prefix}' is not in pipeline_inputs: check the dataset, group and entry point of the requested file")
+        raise ValueError(f"'{prefix}' is not in pipeline_runs: check the dataset, group and entry point of the requested file")
     return values.iloc[0]
 
 ################################################################################
@@ -99,7 +100,7 @@ def get_input_setting(prefix: str, key: str):
 def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) -> pd.DataFrame:
     """Load and check the long-read sample sheet.
 
-    Only the entries of ``pipeline_inputs`` without a ``gtf`` start from reads.
+    Only the entries of ``pipeline_runs`` without a ``gtf`` start from reads.
     Without them the sheet is not read, so ``input_endome_samples`` can be
     missing or null.
 
@@ -147,7 +148,7 @@ def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) ->
         group_list = ["control", "case"] if group == "control_case" else [group]
         if not ((selected["dataset"] == dataset) & selected["group"].isin(group_list)).any():
             raise ValueError(f"No samples for {dataset}.{group} in {sample_sheet}. "
-                             f"Check `group` in pipeline_inputs, or add a `pre-assembled_gtf` if it is an external transcriptome")
+                             f"Check `group` in pipeline_runs, or add a `pre-assembled_gtf` if it is an external transcriptome")
     return samples
 
 ################################################################################

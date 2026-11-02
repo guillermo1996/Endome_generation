@@ -1,13 +1,7 @@
 ################################################################################
-## 07 - UTR Usage
+## UTR Usage
 ################################################################################
-## Differential usage of the ENDome bins. Step by step:
-##   1. process_scUTRquant    (S07a) -> annotated nuclei and their QC
-##   2. pseudobulk_scUTRquant (S07b) -> processed SCE and pseudobulk (sample x cell type)
-##   3. satuRn_DTU            (S07c) -> satuRn + stageR per stratum x cell type
-##   4. pseudobulk_report / satuRn_report (R07a / R07b)
-## The cell annotation and sample tables are dataset-specific and are prepared
-## outside the pipeline
+## Differential usage of the ENDome bins
 
 ## Variables
 ################################################################################
@@ -94,49 +88,6 @@ rule satuRn_DTU:
         alpha = lambda w: satuRn_settings[w.saturn_method]["alpha"]
     conda: "../envs/r.yaml"
     script: "../scripts/S07c-satuRn_DTU.R"
-
-rule pseudobulk_report:
-    message: "--- Rendering the pseudobulk report of {wildcards.endome_name} ---"
-    input:
-        cells = expand(rules.process_scUTRquant.output.cells, pseudobulk_method = config.get("pseudobulk_preset", ["default"]), allow_missing = True),
-        pseudobulk = expand(rules.pseudobulk_scUTRquant.output.pseudobulk, pseudobulk_method = config.get("pseudobulk_preset", ["default"]), allow_missing = True),
-        covariates = sc_dataset["sample_table"],
-    output:
-        html = step07.path("reports/{endome_name}.pseudobulk_report.html")
-    log: step07.logs("reports/{endome_name}.pseudobulk_report.log")
-    benchmark: step07.benchmark("reports/{endome_name}.pseudobulk_report.tsv")
-    params:
-        preset_settings = pseudobulk_settings,
-        satuRn = {**satuRn_settings["default"], **sc_dataset},
-    conda: "../envs/r.yaml"
-    script: "../scripts/R07a-Pseudobulk_Report.Rmd"
-
-rule satuRn_report:
-    message: "--- Rendering the satuRn report of {wildcards.endome_name} ---"
-    input:
-        results = expand(rules.satuRn_DTU.output.results_rds,
-            pseudobulk_method = config.get("pseudobulk_preset", ["default"]),
-            saturn_method = config.get("satuRn_preset", ["default"]), allow_missing = True),
-        diagnostics = expand(rules.satuRn_DTU.output.diagnostics_rds,
-            pseudobulk_method = config.get("pseudobulk_preset", ["default"]),
-            saturn_method = config.get("satuRn_preset", ["default"]), allow_missing = True),
-        pseudobulk = expand(rules.pseudobulk_scUTRquant.output.pseudobulk,
-            pseudobulk_method = config.get("pseudobulk_preset", ["default"]), allow_missing = True),
-        n_cells = expand(rules.pseudobulk_scUTRquant.output.n_cells,
-            pseudobulk_method = config.get("pseudobulk_preset", ["default"]), allow_missing = True),
-        sample_table = sc_dataset["sample_table"],
-    output:
-        html = step07.path("reports/{endome_name}.satuRn_report.html")
-    log: step07.logs("reports/{endome_name}.satuRn_report.log")
-    benchmark: step07.benchmark("reports/{endome_name}.satuRn_report.tsv")
-    params:
-        pseudobulk_settings = pseudobulk_settings,
-        satuRn_settings = satuRn_settings,
-        comparison = {key: sc_dataset.get(key) for key in ["stratify_by", "celltypes", "contrasts", "covariates", "exclude_samples"]},
-        genes_of_interest = ["APP", "SNCA"],
-        top_genes = 6,
-    conda: "../envs/r.yaml"
-    script: "../scripts/R07b-satuRn_Report.Rmd"
 
 
 register_test_data_link(rules.process_scUTRquant.output.cells)

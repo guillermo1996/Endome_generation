@@ -1,38 +1,36 @@
+#!/usr/bin/env Rscript
+
 ## _________________________________________________
 ##
 ## Processed scUTRquant SCE and pseudobulk
 ##
 ## Aim: Build the processed SingleCellExperiment of one ENDome (QC-passing
-##      nuclei from 07a, bins annotated with their ENDome coordinates) and sum
-##      its raw counts by sample and cell type.
+## nuclei, bins annotated with their ENDome coordinates) and sum its raw counts
+## by sample and cell type
 ##
-## Project: ENDome generation - UTR Usage
-##
-## Author: Guillermo Rocamora Pérez (guillermorocamora@gmail.com)
-##
+## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S07b-Pseudobulk
 ## Date Created: 2026-10-06
 ##
-## Latest Version: v2.0 (2026-10-16)
-##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
+## Email: guillermorocamora@gmail.com
+##
+## Latest Version: v2.2 (2026-10-28)
 ##
 ## _________________________________________________
 ##
 ## Notes:
-##    - Input formats, outputs and the reasoning behind each step are described
-##      in docs/UTR_quantification_and_usage.md.
-##    - Raw counts are summed (not normalised counts): satuRn (07c) models each
-##      bin's share of its gene's counts within a sample.
-##    - No minimum number of nuclei is applied here: 07c applies min_cells using
-##      the n_cells table written next to the pseudobulk.
+##    - No minimum number of nuclei is applied here. S07c applies min_cells
+##      with the n_cells table.
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
 ## Changelog:
-##    - v2.0 (2026-10-16): Simplified. The GTF and merge table are required.
-##    - v1.1 (2026-10-07): Writes the processed SCE; bin annotations from the
-##      ENDome GTF and merge table; drops bins without counts.
+##    - v2.2 (2026-10-28): Standardization of the script.
+##    - v2.1 (2026-10-20): is_mt also matches the Ensembl "MT".
+##    - v2.0 (2026-10-16): The ENDome GTF and merge table are required.
+##    - v1.1 (2026-10-07): Processed SCE output, bin annotations and removal of
+##      bins without counts.
 ##    - v1.0 (2026-10-06): Initial version.
-##
-## Contact: guillermorocamora@gmail.com
 ## _________________________________________________
 
 ############################################################################## #
@@ -53,25 +51,29 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
-  test_dir <- "data/test_data/Ebbert.control.st_ref"
-  test_endome <- "ref_pc.w500.3p"
+
+  rs <- "results/Wood.control"
+  endome_name <- "Wood.control.st_ref.pc_novel.w500.3p"
+  pseudobulk_method <- "default"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
 
   snakemake <- Snakemake(
     input = list(
-      sce = file.path(test_dir, paste0("test.", test_endome, ".hardy_snRNAseq.txs.Rds")),
-      cells = file.path(test_dir, paste0("test.", test_endome, ".cells.tsv")),
-      gtf = file.path(test_dir, paste0("test.", test_endome, ".txendcutr.gtf")),
-      merge_tsv = file.path(test_dir, paste0("test.", test_endome, ".txendcutr.merge.tsv"))
+      sce = file.path(rs, "06-UTR_Quantification/data/sce", endome_name, "hardy_snRNAseq.txs.Rds"),
+      cells = file.path(rs, "07-UTR_Usage/cells", sprintf("%s.%s.cells.tsv", endome_name, pseudobulk_method)),
+      gtf = file.path(rs, "05-Truncation/txendcutr", sprintf("%s.txendcutr.gtf", endome_name)),
+      merge_tsv = file.path(rs, "05-Truncation/txendcutr", sprintf("%s.txendcutr.merge.tsv", endome_name))
     ),
     output = list(
-      sce = file.path(test_dir, paste0("interactive.", test_endome, ".processed.txs.rds")),
-      pseudobulk = file.path(test_dir, paste0("interactive.", test_endome, ".pseudobulk.rds")),
-      n_cells = file.path(test_dir, paste0("interactive.", test_endome, ".pseudobulk_n_cells.tsv"))
+      sce = file.path(rs, "temp", sprintf("%s.%s.processed.txs.rds", endome_name, pseudobulk_method)),
+      pseudobulk = file.path(rs, "temp", sprintf("%s.%s.pseudobulk.rds", endome_name, pseudobulk_method)),
+      n_cells = file.path(rs, "temp", sprintf("%s.%s.pseudobulk_n_cells.tsv", endome_name, pseudobulk_method))
     ),
+    params = list(),
     wildcards = list(
-      endome_name = paste0(basename(test_dir), ".", test_endome)
+      endome_name = endome_name,
+      pseudobulk_method = pseudobulk_method
     ),
-    log = list(),
     threads = 4,
     scriptdir = "workflow/scripts"
   )
@@ -80,19 +82,20 @@ if (interactive()) {
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
 shhh <- suppressPackageStartupMessages
-
 shhh({
-  library(conflicted)
-  library(tidyverse)
   library(Matrix)
   library(SingleCellExperiment)
   library(dreamlet)
   library(BiocParallel)
+  library(conflicted)
+  library(tidyverse)
 })
 
+## Package options
 options(readr.show_progress = FALSE)
 options(readr.show_col_types = FALSE)
 
+## Solve possible conflicts between packages
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
 conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
@@ -100,28 +103,25 @@ conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 ## 0.2 Script Parameters ----
 smk_inputs <- snakemake@input
 smk_outputs <- snakemake@output
-params <- snakemake@params
 wc <- snakemake@wildcards
 
 bpparam <- BiocParallel::MulticoreParam(workers = snakemake@threads)
 
-## Truncation site of the ENDome (the name ends in .w{width}.{txEnd})
+### The ENDome name ends in .w{width}.{txEnd}
 tx_end <- stringr::str_extract(wc$endome_name, "(3p|5p)$")
-
-dir.create(dirname(smk_outputs$pseudobulk), showWarnings = FALSE, recursive = TRUE)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Helper Functions ----
 
 #' Bin coordinates from the ENDome GTF
 #'
-#' end_coord is the position of the end that defines the bins: the 3' end for
-#' 3p ENDomes, the 5' end for 5p ENDomes.
+#' @param path Path to the ENDome GTF.
+#' @param tx_end "3p" or "5p".
 #'
-#' @param path Path to the ENDome GTF
-#' @param tx_end "3p" or "5p"
-#' @return A tibble with transcript_id, bin_chrom, bin_start, bin_end, bin_strand, end_coord
-read_bin_coordinates <- function(path, tx_end) {
+#' @returns Tibble with `transcript_id`, `bin_chrom`, `bin_start`, `bin_end`,
+#'   `bin_strand` and `end_coord`, the position of the end that defines the bin
+#'   (3' end for 3p ENDomes, 5' end for 5p ENDomes).
+readBinCoordinates <- function(path, tx_end) {
   rtracklayer::import(path, format = "gtf", feature.type = "transcript") %>%
     tibble::as_tibble() %>%
     dplyr::transmute(
@@ -139,18 +139,19 @@ read_bin_coordinates <- function(path, tx_end) {
     dplyr::distinct(transcript_id, .keep_all = TRUE)
 }
 
-#' ENDome transcripts collapsed into each bin (txendcutr merge table)
+#' Transcripts collapsed into each bin
 #'
-#' @param path Path to {endome}.txendcutr.merge.tsv (tx_in, tx_out, gene_out)
-#' @return A tibble with transcript_id (= tx_out), n_merged_txs and merged_txs
-read_bin_members <- function(path) {
+#' @param path Path to the txendcutr merge table (tx_in, tx_out, gene_out).
+#'
+#' @returns Tibble with `transcript_id` (= tx_out), `n_merged_txs` and `merged_txs`.
+readBinMembers <- function(path) {
   readr::read_tsv(path) %>%
     dplyr::group_by(transcript_id = tx_out) %>%
     dplyr::summarise(n_merged_txs = dplyr::n(), merged_txs = paste(sort(tx_in), collapse = ";"), .groups = "drop")
 }
 
 ############################################################################## #
-# ---- 1. Load inputs ----
+# ---- 1. Load the inputs ----
 cells <- readr::read_tsv(smk_inputs$cells, col_types = readr::cols(
     .default = readr::col_character(),
     total_umis = readr::col_double(),
@@ -167,7 +168,7 @@ sce <- readRDS(smk_inputs$sce)
 # ---- 2. Processed SCE ----
 
 #----------------------------------------------------------------------------- #
-## 2.1 Nuclei: the QC-passing nuclei, with the 07a table as colData ----
+## 2.1 QC-passing nuclei ----
 sce <- sce[, cells$cell_id]
 colData(sce) <- S4Vectors::DataFrame(
   cells %>% dplyr::select(-endome, -pass_qc) %>% as.data.frame(),
@@ -175,23 +176,23 @@ colData(sce) <- S4Vectors::DataFrame(
 )
 
 #----------------------------------------------------------------------------- #
-## 2.2 Bins: drop bins without counts ----
+## 2.2 Bins with counts ----
 keep_bins <- Matrix::rowSums(counts(sce)) > 0
 message("Bins with counts in the retained nuclei: ", sum(keep_bins), " of ", length(keep_bins))
 sce <- sce[keep_bins, ]
 
 #----------------------------------------------------------------------------- #
 ## 2.3 Bin annotations ----
-## end_rank orders the bins of a gene by the position of their end, in the
-## direction of transcription (1 = most upstream; for 3p ENDomes, the shortest
-## 3' UTR). Coordinates are named bin_* because seqnames/start/end/strand clash
-## with SummarizedExperiment.
-message("Adding bin annotations from the ENDome GTF and merge table")
+
+### end_rank orders the bins of a gene by the position of their end, in the
+### direction of transcription (1 = most upstream). The coordinates are named
+### bin_* because seqnames/start/end/strand clash with SummarizedExperiment.
+message("Adding the bin annotations from the ENDome GTF and merge table...")
 bin_annots <- tibble::tibble(
   transcript_id = rowData(sce)$transcript_id,
   gene_id = rowData(sce)$gene_id
 ) %>%
-  dplyr::left_join(read_bin_coordinates(smk_inputs$gtf, tx_end), by = "transcript_id") %>%
+  dplyr::left_join(readBinCoordinates(smk_inputs$gtf, tx_end), by = "transcript_id") %>%
   dplyr::mutate(signed_end = ifelse(bin_strand == "-", -1, 1) * end_coord) %>%
   dplyr::group_by(gene_id) %>%
   dplyr::mutate(
@@ -202,8 +203,8 @@ bin_annots <- tibble::tibble(
   ) %>%
   dplyr::ungroup() %>%
   dplyr::select(-signed_end) %>%
-  dplyr::mutate(is_mt = bin_chrom == "chrM") %>%
-  dplyr::left_join(read_bin_members(smk_inputs$merge_tsv), by = "transcript_id")
+  dplyr::mutate(is_mt = bin_chrom %in% c("chrM", "MT")) %>%
+  dplyr::left_join(readBinMembers(smk_inputs$merge_tsv), by = "transcript_id")
 
 rowData(sce) <- S4Vectors::DataFrame(as.data.frame(bin_annots), row.names = rownames(sce))
 S4Vectors::metadata(sce)$endome <- wc$endome_name
@@ -211,9 +212,10 @@ S4Vectors::metadata(sce)$tx_end <- tx_end
 
 ############################################################################## #
 # ---- 3. Pseudobulk ----
-## Only sample_id and the cell type are passed to aggregateToPseudoBulk, so no
-## per-nucleus column ends up in the pseudobulk colData. Result: one assay per
-## cell type, one column per sample.
+
+### Only sample_id and celltype are kept in the colData, so that no nucleus
+### column ends up in the pseudobulk. One assay per cell type, one column per
+### sample.
 sce_pb <- sce
 colData(sce_pb) <- S4Vectors::DataFrame(
   sample_id = sce$sample_id,
@@ -237,12 +239,11 @@ S4Vectors::metadata(pseudobulk)$annotation_level <- "unknown"
 message("  ", length(assayNames(pseudobulk)), " cell types x ", ncol(pseudobulk), " samples")
 
 ############################################################################## #
-# ---- 4. Outputs ----
+# ---- 4. Write the outputs ----
 message("Writing the processed SCE: ", smk_outputs$sce)
 saveRDS(sce, smk_outputs$sce)
 saveRDS(pseudobulk, smk_outputs$pseudobulk)
 
-## Nuclei per sample and cell type (07c drops pseudobulks below min_cells)
 cells %>%
   dplyr::count(sample_id, celltype, name = "n_cells") %>%
   dplyr::mutate(endome = wc$endome_name, .before = 1) %>%

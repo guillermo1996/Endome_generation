@@ -2,30 +2,32 @@
 
 ## _________________________________________________
 ##
-## Isomatch Classify Fix
+## Isomatch classify fix
 ##
-## Make the isomatch output follow the StringTie + gffcompare
-## conventions expected downstream (e.g. 04a joins GENCODE by transcript_id).
+## Aim: Make the isomatch output follow the StringTie + gffcompare conventions
+## expected downstream
 ##
 ## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S02b-isomatch_fix
 ## Date Created: 2026-07-15
+##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
 ## Email: guillermorocamora@gmail.com
 ##
-## Latest version: v1.2 (2026-09-29)
+## Latest Version: v1.3 (2026-10-28)
+##
 ## _________________________________________________
 ##
-## - Notes:
+## Notes:
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
-## - Changelog:
-##   + v1.2 (2026-09-29): transcripts containing a reference transcript take
-##   its id; added merge_transcript_id and the min_sample_cnt filter; exon
-##   features only keep gene_id and transcript_id.
-##   + v1.1 (2026-09-25): fixed syntax error; transcript_id is no longer
-##   replaced by the reference id; added ref_transcript_id, isom_sample_cnt and
-##   isom_ref_source.
-##
-## - Please contact guillermorocamora@gmail.com for further assistance.
+## Changelog:
+##    - v1.3 (2026-10-28): Standardization of the script.
+##    - v1.2 (2026-09-29): Merged transcripts take the id of the reference
+##      transcript they contain. Added merge_transcript_id and min_sample_cnt.
+##    - v1.1 (2026-09-25): Added ref_transcript_id, isom_sample_cnt and
+##      isom_ref_source.
+##    - v1.0 (2026-07-15): Initial version.
 ## _________________________________________________
 
 ############################################################################## #
@@ -33,7 +35,6 @@
 
 #----------------------------------------------------------------------------- #
 ## 0.0 Define Snakemake interactive parameters ----
-
 if (interactive()) {
   library(methods)
   Snakemake <- setClass(
@@ -43,58 +44,88 @@ if (interactive()) {
       output = 'list',
       params = 'list',
       wildcards = 'list',
-      threads = 'numeric'
-    )
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
   )
-  ## dataset.group.merge_method folder created by the `test_data` rule. Outputs
-  ## use the "interactive" prefix so they never overwrite the linked results.
-  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+
+  rs <- "results/Wood.control"
+  prefix <- "Wood.control.iso_ref"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
+
   snakemake <- Snakemake(
-      input = list(gtf = file.path(test_dir, "test.annotated.gtf.gz"),
-                   present_absent = file.path(test_dir, "test.present_absent.tsv.gz"),
-                   track = file.path(test_dir, "test.track.tsv.gz")),
-      output = list(gtf = file.path(test_dir, "interactive.fixed.gtf")),
-      params = list(ref_source = "ref_annotation.gtf", min_sample_cnt = 0),
-      wildcards = list(dataset = "Ebbert", group = "control"),
-      threads = 1
+    input = list(
+      gtf = file.path(rs, "02-Transcriptome_Assembly/isomatch_classify", paste0(prefix, ".annotated.gtf.gz")),
+      present_absent = file.path(rs, "02-Transcriptome_Assembly/isomatch_merge", paste0(prefix, ".present_absent.tsv.gz")),
+      track = file.path(rs, "02-Transcriptome_Assembly/isomatch_merge", paste0(prefix, ".track.tsv.gz"))
+    ),
+    output = list(
+      gtf = file.path(rs, "temp", paste0(prefix, ".fixed.gtf"))
+    ),
+    params = list(
+      ref_source = "ref_annotation.gtf",
+      min_sample_cnt = 0
+    ),
+    wildcards = list(
+      dataset = "Wood",
+      group = "control",
+      merge_method = "iso_ref"
+    ),
+    threads = 1,
+    scriptdir = "workflow/scripts"
   )
 }
 
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
-suppressMessages({
+shhh <- suppressPackageStartupMessages
+shhh({
   library(rtracklayer)
   library(plyranges)
+  library(conflicted)
   library(tidyverse)
 })
 
-## Package options - these are some examples and do not modify the script usage.
-options(dplyr.summarise.inform = FALSE)
-options(lifecycle_verbosity = "warning")
-options(readr.show_progress = F)
-options(readr.show_col_types = F)
+## Package options
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
 
-############################################################################## #
-# ---- 1. Fix isomatch output ----
-
-## Import the isomatch classify output, the merge present/absent table (one
-## row per merged transcript, one 0/1 column per merge input file) and the
-## merge track table (one row per input transcript and its merged transcript)
-gr <- rtracklayer::import(snakemake@input$gtf)
-present_absent <- readr::read_tsv(snakemake@input$present_absent)
-track <- readr::read_tsv(snakemake@input$track)
-ref_source <- snakemake@params$ref_source
-min_sample_cnt <- as.integer(snakemake@params$min_sample_cnt)
-
-## Novel transcripts carry "novel" or "NA" in the ISOM_REF_* attributes, both
-## converted to NA
-isomRefNA <- function(x) dplyr::if_else(x %in% c("novel", "NA"), NA_character_, x)
+## Solve possible conflicts between packages
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
 #----------------------------------------------------------------------------- #
-## 1.1 Long-read support and filtering ----
+## 0.2 Script Parameters ----
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+params <- snakemake@params
 
-## Long-read support per merged transcript. The reference annotation column is
-## excluded from the sample count and reported on its own.
+ref_source <- params$ref_source
+min_sample_cnt <- as.integer(params$min_sample_cnt)
+
+#----------------------------------------------------------------------------- #
+## 0.3 Helper Functions ----
+
+#' Set the "novel" and "NA" values of the ISOM_REF_* attributes to NA
+isomRefNA <- function(x) dplyr::if_else(x %in% c("novel", "NA"), NA_character_, x)
+
+############################################################################## #
+# ---- 1. Load the isomatch outputs ----
+gr <- rtracklayer::import(smk_inputs$gtf)
+
+### One row per merged transcript, one 0/1 column per merge input file
+present_absent <- readr::read_tsv(smk_inputs$present_absent)
+
+### One row per input transcript and the merged transcript it belongs to
+track <- readr::read_tsv(smk_inputs$track)
+
+############################################################################## #
+# ---- 2. Fix the isomatch output ----
+
+#----------------------------------------------------------------------------- #
+## 2.1 Long-read support and filtering ----
+
+### The reference annotation is not counted as a sample
 id_cols <- c("merged_tx_id", "merged_gene_id", "merged_exon_num", "src_tx_count_in_merged_group")
 sample_cols <- setdiff(colnames(present_absent), c(id_cols, ref_source))
 
@@ -105,8 +136,6 @@ support <- present_absent %>%
     isom_ref_source = if (nzchar(ref_source)) .data[[ref_source]] > 0 else NA
   )
 
-## Keep the reference transcripts regardless of their long-read support, and
-## the rest only when found in at least `min_sample_cnt` samples
 kept_tx <- support %>%
   dplyr::filter(isom_ref_source %in% TRUE | isom_sample_cnt >= min_sample_cnt) %>%
   dplyr::pull(transcript_id)
@@ -116,10 +145,10 @@ message(sprintf("Kept %d of %d merged transcripts (reference or >= %d samples)",
 gr <- gr[gr$transcript_id %in% kept_tx]
 
 #----------------------------------------------------------------------------- #
-## 1.2 Reference ids ----
+## 2.2 Reference ids ----
 
-## Merged transcripts containing a reference transcript take its id. When they
-## contain several, the one matched by classify goes first.
+### If a merged transcript contains several reference transcripts, the one
+### matched by classify is preferred
 tx_ref_match <- mcols(gr) %>%
   tibble::as_tibble() %>%
   dplyr::filter(type == "transcript") %>%
@@ -136,12 +165,10 @@ new_ids <- track %>%
 message(sprintf("Renamed %d merged transcripts to their reference id", nrow(new_ids)))
 
 #----------------------------------------------------------------------------- #
-## 1.3 Fix the metadata columns ----
+## 2.3 Metadata columns ----
 
-## Fix the metadata columns to match the output expected from a gffcompare
-## pipeline. Every attribute other than gene_id and transcript_id is only set
-## on the transcript features, stored as character so the GTF values stay
-## quoted.
+### Attributes other than gene_id and transcript_id are only set on the
+### transcript features, as character so that they are quoted in the GTF
 tx_cols <- c("ISOM_CATEGORY", "ISOM_SUBCATEGORY", "ref_transcript_id", "ref_gene_id", "gene_name",
              "isom_sample_cnt", "isom_ref_source")
 
@@ -165,5 +192,6 @@ metadata <- mcols(gr) %>%
   S4Vectors::DataFrame()
 mcols(gr) <- metadata
 
-## Export the modified GRanges
-export(gr, snakemake@output$gtf, format = "gtf")
+############################################################################## #
+# ---- 3. Output the GTF ----
+rtracklayer::export(gr, smk_outputs$gtf, format = "gtf")

@@ -1,45 +1,39 @@
+#!/usr/bin/env Rscript
+
 ## _________________________________________________
 ##
 ## Differential transcript usage with satuRn
 ##
-## Aim: Test differential usage of the ENDome bins between sample groups
-##      (e.g. PDD vs Control) within each stratum (e.g. brain region) and cell
-##      type, from the pseudobulked scUTRquant counts of one ENDome (07b).
+## Aim: Test the differential usage of the ENDome bins between sample groups
+## within each stratum (e.g. brain region) and cell type, from the pseudobulk
+## of one ENDome
 ##
-## Project: ENDome generation - UTR Usage
-##
-## Author: Guillermo Rocamora Pérez (guillermorocamora@gmail.com)
-##
+## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S07c-satuRn_DTU
 ## Date Created: 2026-10-06
 ##
-## Latest Version: v3.0 (2026-10-16)
-##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
+## Email: guillermorocamora@gmail.com
+##
+## Latest Version: v3.1 (2026-10-28)
 ##
 ## _________________________________________________
 ##
 ## Notes:
-##    - Input formats, outputs and the reasoning behind each step are described
-##      in docs/UTR_quantification_and_usage.md.
-##    - One fit per stratum x cell type, with every group of the contrasts.
-##      All contrasts are tested from that fit.
-##    - Per fit: samples with >= min_cells nuclei -> groups with >=
-##      min_samples_per_group samples -> DRIMSeq::dmFilter -> satuRn::fitDTU ->
-##      satuRn::testDTU -> stageR (gene-level screening + bin confirmation).
-##    - p_value: "empirical" (satuRn's recommendation; falls back to the raw
-##      p-values when satuRn cannot compute them, see the p_type column), "raw",
-##      or "none" (no stageR).
-##    - Numeric covariates are centred and scaled; any other covariate is a
-##      factor. Covariates that are constant within a fit are dropped.
+##    - One fit per stratum x cell type with every group of the contrasts. All
+##      contrasts are tested from that fit.
+##    - satuRn only computes empirical p-values with >= 500 tested bins. Below
+##      that, p_value = "empirical" falls back to the raw p-values (p_type
+##      column).
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
 ## Changelog:
-##    - v3.0 (2026-10-16): Simplified. stratify_by is a single column name; the
-##      sample table is read as TSV; the constant "fit" column is removed.
+##    - v3.1 (2026-10-28): Standardization of the script.
+##    - v3.0 (2026-10-16): stratify_by is a single column. Sample table read as
+##      TSV.
 ##    - v2.0 (2026-10-15): Dataset-independent sample table.
-##    - v1.1 (2026-10-07): Results carry the bin annotations of 07b.
+##    - v1.1 (2026-10-07): Results include the bin annotations of S07b.
 ##    - v1.0 (2026-10-06): Initial version.
-##
-## Contact: guillermorocamora@gmail.com
 ## _________________________________________________
 
 ############################################################################## #
@@ -60,24 +54,26 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
-  ## Inputs linked by the `test_data` rule; outputs use the "interactive"
-  ## prefix so they never overwrite them
-  test_dir <- "data/test_data/Wood.control.st_ref"
-  test_endome <- "ref_pc.w500.3p"
-  test_pseudobulk <- paste0(test_endome, ".default")
+
+  rs <- "results/Wood.control"
+  endome_name <- "Wood.control.st_ref.pc_novel.w500.3p"
+  pseudobulk_method <- "default"
+  saturn_method <- "default"
+  run_name <- paste(endome_name, pseudobulk_method, saturn_method, sep = ".")
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
 
   snakemake <- Snakemake(
     input = list(
-      pseudobulk = file.path(test_dir, paste0("test.", test_pseudobulk, ".pseudobulk.rds")),
-      n_cells = file.path(test_dir, paste0("test.", test_pseudobulk, ".pseudobulk_n_cells.tsv")),
+      pseudobulk = file.path(rs, "07-UTR_Usage/pseudobulk", sprintf("%s.%s.pseudobulk.rds", endome_name, pseudobulk_method)),
+      n_cells = file.path(rs, "07-UTR_Usage/pseudobulk", sprintf("%s.%s.pseudobulk_n_cells.tsv", endome_name, pseudobulk_method)),
       sample_table = "data/Hardy_snRNAseq/prepared/Hardy.sample_table.tsv"
     ),
     output = list(
-      results = file.path(test_dir, paste0("interactive.", test_pseudobulk, ".satuRn.condition.tsv")),
-      diagnostics = file.path(test_dir, paste0("interactive.", test_pseudobulk, ".satuRn.condition.diagnostics.tsv")),
-      results_rds = file.path(test_dir, paste0("interactive.", test_pseudobulk, ".satuRn.condition.rds")),
-      diagnostics_rds = file.path(test_dir, paste0("interactive.", test_pseudobulk, ".satuRn.condition.diagnostics.rds")),
-      diagplots = file.path(test_dir, paste0("interactive.", test_pseudobulk, ".satuRn.condition.diagplots"))
+      results = file.path(rs, "temp", sprintf("%s.satuRn.condition.tsv", run_name)),
+      diagnostics = file.path(rs, "temp", sprintf("%s.satuRn.condition.diagnostics.tsv", run_name)),
+      results_rds = file.path(rs, "temp", sprintf("%s.satuRn.condition.rds", run_name)),
+      diagnostics_rds = file.path(rs, "temp", sprintf("%s.satuRn.condition.diagnostics.rds", run_name)),
+      diagplots = file.path(rs, "temp", sprintf("%s.satuRn.condition.diagplots", run_name))
     ),
     params = list(
       exclude_samples = c("gosot_ACG", "gosot_IPL"),
@@ -93,9 +89,10 @@ if (interactive()) {
       alpha = 0.05
     ),
     wildcards = list(
-      endome_name = paste0(basename(test_dir), ".", test_endome)
+      endome_name = endome_name,
+      pseudobulk_method = pseudobulk_method,
+      saturn_method = saturn_method
     ),
-    log = list(),
     threads = 8,
     scriptdir = "workflow/scripts"
   )
@@ -104,10 +101,7 @@ if (interactive()) {
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
 shhh <- suppressPackageStartupMessages
-
 shhh({
-  library(conflicted)
-  library(tidyverse)
   library(SummarizedExperiment)
   library(SingleCellExperiment)
   library(satuRn)
@@ -116,17 +110,21 @@ shhh({
   library(stageR)
   library(limma)
   library(BiocParallel)
+  library(conflicted)
+  library(tidyverse)
 })
 
+## Package options
 options(readr.show_progress = FALSE)
 options(readr.show_col_types = FALSE)
 
+## Solve possible conflicts between packages
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
 conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 conflicted::conflict_prefer("counts", "DRIMSeq", quiet = TRUE)
 conflicted::conflict_prefer("samples", "DRIMSeq", quiet = TRUE)
 
-## One BLAS thread per worker: the parallelism is across fits
+### One BLAS thread per worker: the parallelism is across fits
 if (requireNamespace("RhpcBLASctl", quietly = TRUE)) {
   RhpcBLASctl::blas_set_num_threads(1)
   RhpcBLASctl::omp_set_num_threads(1)
@@ -140,8 +138,8 @@ params <- snakemake@params
 wc <- snakemake@wildcards
 
 exclude_samples <- as.character(unlist(params$exclude_samples))
-stratify_by <- params$stratify_by          # a sample-table column, or NULL for no strata
-celltypes <- params$celltypes              # NULL = every cell type of the pseudobulk
+stratify_by <- params$stratify_by          # NULL: no strata
+celltypes <- params$celltypes              # NULL: every cell type of the pseudobulk
 contrasts <- params$contrasts
 covariates <- as.character(unlist(params$covariates))
 min_cells <- params$min_cells
@@ -151,25 +149,26 @@ dmfilter <- params$dmfilter
 p_value <- match.arg(params$p_value, c("raw", "empirical", "none"))
 alpha <- params$alpha
 
+### A fit that fails does not stop the others
 bpparam <- if (interactive()) {
   BiocParallel::SerialParam(stop.on.error = FALSE)
 } else {
   BiocParallel::MulticoreParam(workers = snakemake@threads, stop.on.error = FALSE)
 }
 
-dir.create(dirname(smk_outputs$results), showWarnings = FALSE, recursive = TRUE)
 dir.create(smk_outputs$diagplots, showWarnings = FALSE, recursive = TRUE)
 
 #----------------------------------------------------------------------------- #
 ## 0.3 Helper Functions ----
 
-#' Parse contrasts written as "<group1>-<group2>"
+#' Parse the contrasts written as "<group1>-<group2>"
 #'
-#' @param contrasts Character vector, e.g. c("PDD-Control", "PD-Control")
-#' @return A tibble with contrast (e.g. "PDDvsControl"), group1 and group2
-parse_contrasts <- function(contrasts) {
+#' @param contrasts Character vector, e.g. c("PDD-Control", "PD-Control").
+#'
+#' @returns Tibble with `contrast` (e.g. "PDDvsControl"), `group1` and `group2`.
+parseContrasts <- function(contrasts) {
   parts <- strsplit(contrasts, "-", fixed = TRUE)
-  if (any(lengths(parts) != 2)) stop("Contrasts must be '<group1>-<group2>': ", paste(contrasts, collapse = ", "))
+  if (any(lengths(parts) != 2)) stop("Contrasts must be '<group1>-<group2>': ", paste(contrasts, collapse = ", "), call. = FALSE)
   tibble::tibble(
     contrast = vapply(parts, paste, character(1), collapse = "vs"),
     group1 = vapply(parts, `[`, character(1), 1),
@@ -177,18 +176,19 @@ parse_contrasts <- function(contrasts) {
   )
 }
 
-#' Make a string safe for file names (cell types such as "CUX2_L2/3")
-safe_name <- function(x) gsub("[^A-Za-z0-9_.-]+", "_", x)
+#' Make a string safe for file names (e.g. the cell type "CUX2_L2/3")
+safeName <- function(x) gsub("[^A-Za-z0-9_.-]+", "_", x)
 
 #' Empirical null estimates (delta, sigma) of one contrast
 #'
-#' Only used for the diagnostics table: satuRn computes them internally but
-#' does not return them. Reproduces the steps of satuRn:::p.adjust_empirical.
+#' satuRn computes them internally but does not return them. Same steps as
+#' satuRn:::p.adjust_empirical.
 #'
-#' @param pval Raw p-values from testDTU
-#' @param tstat t-statistics from testDTU
-#' @return A named numeric vector c(delta, sigma), NA if the estimation fails
-estimate_empirical_null <- function(pval, tstat) {
+#' @param pval Raw p-values from testDTU.
+#' @param tstat t-statistics from testDTU.
+#'
+#' @returns Named numeric vector c(delta, sigma), NA if the estimation fails.
+estimateEmpiricalNull <- function(pval, tstat) {
   tryCatch({
     zvalues <- qnorm(pval / 2) * sign(tstat)
     zvalues_mid <- zvalues[abs(zvalues) < 10]
@@ -215,14 +215,14 @@ estimate_empirical_null <- function(pval, tstat) {
 
 #' Gene-level q-values for the stageR screening stage
 #'
-#' satuRn vignette recipe: per-gene minimum p-value, then DEXSeq's
-#' perGeneQValue. Bins with NA p-values are ignored; genes without any valid
-#' p-value get 1.
+#' satuRn vignette recipe: minimum p-value per gene, then DEXSeq's
+#' perGeneQValue. Genes without any valid p-value get 1.
 #'
-#' @param pvals Bin-level p-values
-#' @param gene_id Gene of each bin
-#' @return A named vector of gene q-values
-compute_gene_qvalues <- function(pvals, gene_id) {
+#' @param pvals Bin-level p-values.
+#' @param gene_id Gene of each bin.
+#'
+#' @returns Named vector of gene q-values.
+computeGeneQvalues <- function(pvals, gene_id) {
   gene_id <- factor(gene_id)
   gene_split <- split(seq_along(gene_id), gene_id)
   p_gene <- vapply(gene_split, function(i) suppressWarnings(min(pvals[i], na.rm = TRUE)), numeric(1))
@@ -234,17 +234,17 @@ compute_gene_qvalues <- function(pvals, gene_id) {
   q_screen
 }
 
-#' Diagnostics rows of one fit: one row per contrast
-make_diagnostics <- function(fit, contrast_names, status, ...) {
+#' Diagnostics rows of one fit, one per contrast
+makeDiagnostics <- function(fit, contrast_names, status, ...) {
   tibble::tibble(endome = wc$endome_name, stratum = fit$stratum, celltype = fit$celltype,
                  contrast = contrast_names, status = status, ...)
 }
 
 ############################################################################## #
-# ---- 1. Load inputs ----
+# ---- 1. Load the inputs ----
 
 #----------------------------------------------------------------------------- #
-## 1.1 Pseudobulk and nuclei per pseudobulk (07b) ----
+## 1.1 Pseudobulk and nuclei per pseudobulk ----
 message("Loading the pseudobulk: ", smk_inputs$pseudobulk)
 pseudobulk <- readRDS(smk_inputs$pseudobulk)
 n_cells <- readr::read_tsv(smk_inputs$n_cells, col_types = readr::cols(.default = readr::col_character(), n_cells = readr::col_double())) %>%
@@ -259,28 +259,27 @@ if (length(missing_celltypes) > 0) {
 
 #----------------------------------------------------------------------------- #
 ## 1.2 Sample table ----
-contrast_tbl <- parse_contrasts(contrasts)
+contrast_tbl <- parseContrasts(contrasts)
 all_groups <- unique(c(contrast_tbl$group1, contrast_tbl$group2))
 
 samples <- readr::read_tsv(smk_inputs$sample_table, col_types = readr::cols(
   .default = readr::col_guess(), sample_id = readr::col_character(), group = readr::col_character()))
 
 missing_cols <- setdiff(c("sample_id", "group", stratify_by, covariates), colnames(samples))
-if (length(missing_cols) > 0) stop("Columns missing from the sample table: ", paste(missing_cols, collapse = ", "))
+if (length(missing_cols) > 0) stop("Columns missing from the sample table: ", paste(missing_cols, collapse = ", "), call. = FALSE)
 missing_groups <- setdiff(all_groups, samples$group)
-if (length(missing_groups) > 0) stop("Contrast groups not in the sample table: ", paste(missing_groups, collapse = ", "))
+if (length(missing_groups) > 0) stop("Contrast groups not in the sample table: ", paste(missing_groups, collapse = ", "), call. = FALSE)
 
-## stratum: the value of the stratification column ("all" without stratify_by)
 samples <- samples %>%
   dplyr::mutate(stratum = if (is.null(stratify_by)) "all" else as.character(.data[[stratify_by]])) %>%
   dplyr::filter(group %in% all_groups, !sample_id %in% exclude_samples, sample_id %in% colnames(pseudobulk))
-if (anyNA(samples[, covariates])) stop("Missing values in the covariates of the sample table")
+if (anyNA(samples[, covariates])) stop("Missing values in the covariates of the sample table", call. = FALSE)
 
 strata_n <- table(samples$stratum)
 message("Samples: ", nrow(samples), " (", paste(names(strata_n), strata_n, sep = "=", collapse = ", "), ")")
 
 #----------------------------------------------------------------------------- #
-## 1.3 Fits to run: every stratum x cell type ----
+## 1.3 Fits: every stratum x cell type ----
 fit_grid <- tidyr::expand_grid(stratum = sort(unique(samples$stratum)), celltype = celltypes)
 message("Fits to run: ", nrow(fit_grid))
 
@@ -289,18 +288,18 @@ message("Fits to run: ", nrow(fit_grid))
 
 #' Run one satuRn fit (one stratum x cell type) and test every contrast
 #'
-#' @param i Row of fit_grid
-#' @return A list with `results` (tibble or NULL) and `diagnostics` (tibble)
-run_fit <- function(i) {
-  # i <- 1
+#' @param i Row of `fit_grid`.
+#'
+#' @returns List with `results` (tibble or NULL) and `diagnostics` (tibble).
+runFit <- function(i) {
   start_time <- Sys.time()
   fit <- fit_grid[i, ]
 
   #----------------------------------------------------------------------------- #
   ## 2.1 Samples of this fit ----
-  ## Samples with >= min_cells nuclei of this cell type, then groups with >=
-  ## min_samples_per_group such samples. Contrasts with a dropped group are
-  ## reported as skipped.
+
+  ### Samples with >= min_cells nuclei, then groups with >= min_samples_per_group
+  ### samples. Contrasts with a dropped group are reported as skipped.
   fit_samples <- samples %>%
     dplyr::filter(stratum == fit$stratum) %>%
     dplyr::inner_join(n_cells %>% dplyr::filter(celltype == fit$celltype) %>% dplyr::select(-celltype), by = "sample_id") %>%
@@ -313,21 +312,22 @@ run_fit <- function(i) {
   cts <- assay(pseudobulk, fit$celltype)[, fit_samples$sample_id, drop = FALSE]
 
   testable <- contrast_tbl$group1 %in% kept_groups & contrast_tbl$group2 %in% kept_groups
-  skipped_diag <- make_diagnostics(fit, contrast_tbl$contrast[!testable],
+  skipped_diag <- makeDiagnostics(fit, contrast_tbl$contrast[!testable],
     paste0("skipped: < ", min_samples_per_group, " samples with >= ", min_cells, " nuclei in a group"),
     group_sizes = group_sizes_txt)
   fit_contrasts <- contrast_tbl[testable, ]
   if (nrow(fit_contrasts) == 0) return(list(results = NULL, diagnostics = skipped_diag))
 
-  skip_fit <- function(status) {
+  skipFit <- function(status) {
     list(results = NULL, diagnostics = dplyr::bind_rows(skipped_diag,
-      make_diagnostics(fit, fit_contrasts$contrast, status, group_sizes = group_sizes_txt)))
+      makeDiagnostics(fit, fit_contrasts$contrast, status, group_sizes = group_sizes_txt)))
   }
 
   #----------------------------------------------------------------------------- #
-  ## 2.2 Filter bins with DRIMSeq::dmFilter ----
-  ## DRIMSeq renames non-syntactic sample columns (e.g. "001" -> "X001"), so it
-  ## gets internal IDs (s1, s2, ...), mapped back to sample_id in 2.4
+  ## 2.2 Filter the bins with DRIMSeq::dmFilter ----
+
+  ### DRIMSeq renames non-syntactic sample names (e.g. "001" -> "X001"), so it
+  ### gets internal ids (s1, s2, ...)
   n_bins_input <- sum(rowSums(cts) > 0)
   dm_ids <- paste0("s", seq_len(nrow(fit_samples)))
   d <- DRIMSeq::dmDSdata(
@@ -335,7 +335,8 @@ run_fit <- function(i) {
                         stats::setNames(as.data.frame(as.matrix(cts)), dm_ids), check.names = FALSE, stringsAsFactors = FALSE),
     samples = data.frame(sample_id = dm_ids, group = fit_samples$group, stringsAsFactors = FALSE)
   )
-  ## dmFilter fails when no gene passes
+
+  ### dmFilter fails when no gene passes
   d <- tryCatch(
     DRIMSeq::dmFilter(d,
       min_samps_gene_expr = round(nrow(fit_samples) * dmfilter$min_samps_gene_prop),
@@ -343,19 +344,22 @@ run_fit <- function(i) {
       min_gene_expr = dmfilter$min_gene_expr,
       min_feature_expr = dmfilter$min_feature_expr),
     error = function(e) NULL)
-  if (is.null(d)) return(skip_fit("skipped: no genes left after filtering"))
+  if (is.null(d)) return(skipFit("skipped: no genes left after filtering"))
 
-  ## satuRn needs >= 2 bins per gene
+  ### satuRn needs >= 2 bins per gene
   filt <- DRIMSeq::counts(d) %>%
     dplyr::mutate(gene_id = as.character(gene_id), feature_id = as.character(feature_id)) %>%
     dplyr::group_by(gene_id) %>% dplyr::filter(dplyr::n() >= 2) %>% dplyr::ungroup()
   n_genes_filt <- dplyr::n_distinct(filt$gene_id)
   if (n_genes_filt < min_genes) {
-    return(skip_fit(paste0("skipped: ", n_genes_filt, " genes after filtering (< min_genes = ", min_genes, ")")))
+    return(skipFit(paste0("skipped: ", n_genes_filt, " genes after filtering (< min_genes = ", min_genes, ")")))
   }
 
   #----------------------------------------------------------------------------- #
   ## 2.3 Design matrix: ~ 0 + group + covariates ----
+
+  ### Numeric covariates are scaled, the rest are factors. Covariates that are
+  ### constant within the fit are dropped.
   coldata <- fit_samples %>% dplyr::mutate(group = factor(group, levels = kept_groups))
   used_covariates <- character(0)
   for (cov in covariates) {
@@ -369,7 +373,7 @@ run_fit <- function(i) {
   coldata <- as.data.frame(coldata)
   rownames(coldata) <- coldata$sample_id
   design <- model.matrix(design_formula, data = coldata)
-  if (qr(design)$rank < ncol(design)) return(skip_fit("skipped: rank-deficient design"))
+  if (qr(design)$rank < ncol(design)) return(skipFit("skipped: rank-deficient design"))
 
   #----------------------------------------------------------------------------- #
   ## 2.4 Fit satuRn ----
@@ -391,9 +395,9 @@ run_fit <- function(i) {
   )
   colnames(L) <- fit_contrasts$contrast
 
-  ## satuRn 1.18 always draws its diagnostic plots, so they go to a PDF per fit
+  ### satuRn 1.18 always draws its diagnostic plots: one PDF per fit
   fit_label <- paste(fit$stratum, fit$celltype, sep = " | ")
-  grDevices::pdf(file.path(smk_outputs$diagplots, paste0(safe_name(paste(fit$stratum, fit$celltype, sep = ".")), ".pdf")),
+  grDevices::pdf(file.path(smk_outputs$diagplots, paste0(safeName(paste(fit$stratum, fit$celltype, sep = ".")), ".pdf")),
                  width = 8, height = 6)
   graphics::plot.new()
   graphics::text(0.5, 0.5, paste0(wc$endome_name, "\n", fit_label, "\n", group_sizes_txt), cex = 1.1)
@@ -404,19 +408,17 @@ run_fit <- function(i) {
   #----------------------------------------------------------------------------- #
   ## 2.6 Per contrast: p-values, gene q-values and stageR ----
   per_contrast <- purrr::map(fit_contrasts$contrast, function(contrast_name) {
-    # contrast_name <- fit_contrasts$contrast[[1]]
     res <- as.data.frame(rowData(se)[[paste0("fitDTUResult_", contrast_name)]])
     res$isoform_id <- rowData(se)$isoform_id
     res$gene_id <- rowData(se)$gene_id
 
-    ## satuRn 1.18 only computes empirical p-values with >= 500 tested bins
     has_empirical <- any(!is.na(res$empirical_pval))
     p_type <- if (p_value == "empirical" && !has_empirical) "raw" else p_value
     res$p_used <- switch(p_type, empirical = res$empirical_pval, raw = res$pval, none = NA_real_)
-    null_est <- if (has_empirical) estimate_empirical_null(res$pval, res$t) else c(delta = NA_real_, sigma = NA_real_)
+    null_est <- if (has_empirical) estimateEmpiricalNull(res$pval, res$t) else c(delta = NA_real_, sigma = NA_real_)
 
     if (p_type != "none" && any(!is.na(res$p_used))) {
-      q_screen <- compute_gene_qvalues(res$p_used, res$gene_id)
+      q_screen <- computeGeneQvalues(res$p_used, res$gene_id)
       stage_obj <- stageR::stageRTx(
         pScreen = q_screen,
         pConfirmation = matrix(res$p_used, ncol = 1, dimnames = list(res$isoform_id, "transcript")),
@@ -441,7 +443,7 @@ run_fit <- function(i) {
         p_type = p_type, p_used, gene_qvalue, stageR_gene, stageR_transcript
       )
 
-    diagnostics <- make_diagnostics(fit, contrast_name, "ok",
+    diagnostics <- makeDiagnostics(fit, contrast_name, "ok",
       group_sizes = group_sizes_txt,
       covariates_used = paste(used_covariates, collapse = ";"),
       covariates_dropped = paste(setdiff(covariates, used_covariates), collapse = ";"),
@@ -471,24 +473,24 @@ run_fit <- function(i) {
 
 #----------------------------------------------------------------------------- #
 ## 2.7 Run all fits ----
-fit_outputs <- BiocParallel::bplapply(seq_len(nrow(fit_grid)), run_fit, BPPARAM = bpparam)
+fit_outputs <- BiocParallel::bplapply(seq_len(nrow(fit_grid)), runFit, BPPARAM = bpparam)
 
-## A fit that fails does not stop the others: its error goes to the diagnostics
+### Failed fits go to the diagnostics with their error
 ok <- BiocParallel::bpok(fit_outputs)
 if (any(!ok)) {
   message(sum(!ok), " fit(s) failed: ", paste(which(!ok), collapse = ", "))
   fit_outputs[!ok] <- purrr::map(which(!ok), function(i) {
-    list(results = NULL, diagnostics = make_diagnostics(fit_grid[i, ], contrast_tbl$contrast,
+    list(results = NULL, diagnostics = makeDiagnostics(fit_grid[i, ], contrast_tbl$contrast,
       paste0("error: ", conditionMessage(fit_outputs[[i]]))))
   })
 }
 
 ############################################################################## #
-# ---- 3. Outputs ----
+# ---- 3. Write the outputs ----
 results <- dplyr::bind_rows(purrr::map(fit_outputs, "results")) %>% tibble::as_tibble()
 diagnostics <- dplyr::bind_rows(purrr::map(fit_outputs, "diagnostics"))
 
-## Bin annotations of 07b (coordinates, end rank, merged transcripts)
+### Bin annotations of S07b (coordinates, end rank, merged transcripts)
 if (nrow(results) > 0) {
   bin_annots <- as.data.frame(rowData(pseudobulk)) %>%
     tibble::as_tibble() %>%
@@ -497,18 +499,18 @@ if (nrow(results) > 0) {
   results <- results %>% dplyr::left_join(bin_annots, by = "isoform_id")
 } else {
   warning("No fit was run; see the diagnostics for the reasons")
-  results <- tibble::tibble(endome = character(0), stratum = character(0))   # header-only file
+  results <- tibble::tibble(endome = character(0), stratum = character(0))
 }
 
-## The stratum column is named after the stratification column (e.g. region)
-name_stratum <- function(df) {
+### The stratum column takes the name of the stratification column
+nameStratum <- function(df) {
   if (is.null(stratify_by)) dplyr::select(df, -stratum) else dplyr::rename(df, !!stratify_by := stratum)
 }
 
-readr::write_tsv(name_stratum(results), smk_outputs$results)
-readr::write_tsv(name_stratum(diagnostics), smk_outputs$diagnostics)
-saveRDS(name_stratum(results), smk_outputs$results_rds)
-saveRDS(name_stratum(diagnostics), smk_outputs$diagnostics_rds)
+readr::write_tsv(nameStratum(results), smk_outputs$results)
+readr::write_tsv(nameStratum(diagnostics), smk_outputs$diagnostics)
+saveRDS(nameStratum(results), smk_outputs$results_rds)
+saveRDS(nameStratum(diagnostics), smk_outputs$diagnostics_rds)
 
 message(sum(diagnostics$status == "ok"), " of ", nrow(diagnostics), " fit x contrast tests ran; ",
         sum(diagnostics$n_sig_genes, na.rm = TRUE), " significant genes in total (stageR, alpha = ", alpha, ")")

@@ -1,3 +1,5 @@
+#!/usr/bin/env Rscript
+
 ## _________________________________________________
 ##
 ## Build the ENDome DuckDB
@@ -5,31 +7,30 @@
 ## Aim: Build one DuckDB per ENDome GTF from the outputs of the truncation
 ## pipeline and the upstream ORF categorization
 ##
-## Project: ENDome generation - Bin Information Content
-##
-## Author: Guillermo Rocamora Pérez (guillermorocamora@gmail.com)
-##
+## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S05c-Build_ENDome_DB
 ## Date Created: 2026-08-19
 ##
-## Latest Version: v1.1 (2026-09-30)
-##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
+## Email: guillermorocamora@gmail.com
+##
+## Latest Version: v1.2 (2026-10-28)
 ##
 ## _________________________________________________
 ##
 ## Notes:
 ##    - One DuckDB per (prefix, orf_filter, width, txEnd), named to mirror the
 ##      ENDome GTF it describes.
-##    - The `transcripts` table is built from the PRE-truncation ORF-filtered
-##      GTF. `bin_id` / `superseded_by` are the only truncation-dependent columns
-##    - Surrogate keys (aa_id, cds_id, utr5_id, utr3_id) are content hashes.
+##    - The `transcripts` table is built from the pre-truncation ORF-filtered
+##      GTF. `bin_id` and `superseded_by` are the only truncation-dependent
+##      columns.
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
 ## Changelog:
-##    - v1.1 (2026-09-30): transcripts table follows 04a v1.2: in_ref replaced
-##      by ref_isoform; added gene_source, merge_gene_id and ref_transcript_id.
-##    - v1.0 (2026-08-19): Initial version
-##
-## Contact: guillermorocamora@gmail.com
+##    - v1.2 (2026-10-28): Standardization of the script.
+##    - v1.1 (2026-09-30): Transcripts table follows S04a v1.2 (ref_isoform,
+##      gene_source, merge_gene_id, ref_transcript_id).
+##    - v1.0 (2026-08-19): Initial version.
 ## _________________________________________________
 
 ############################################################################## #
@@ -50,35 +51,35 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
-  ## dataset.group.merge_method folder created by the `test_data` rule (its
-  ## name is the prefix wildcard), and the orf_filter preset and truncation
-  ## (width, txEnd) to test. The output uses the "interactive" prefix so it
-  ## never overwrites the linked results.
-  test_dir <- "data/test_data/Ebbert.control.iso_ref"
-  test_orf_filter <- "ref_pc"
-  test_width <- "500"
-  test_txEnd <- "3p"
-  test_txendcutr <- file.path(test_dir, paste0("test.", test_orf_filter, ".txendcutr.w", test_width, ".", test_txEnd))
+  
+  rs <- "results/Wood.control"
+  prefix <- "Wood.control.st_ref"
+  orf_filter <- "pc_novel"
+  width <- "500"
+  txEnd <- "3p"
+  endome <- sprintf("%s.%s.w%s.%s", prefix, orf_filter, width, txEnd)
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
+
   snakemake <- Snakemake(
     input = list(
-      gtf_filter = file.path(test_dir, paste0("test.", test_orf_filter, ".orf_filter.gtf")),
-      isoform_summary = file.path(test_dir, "test.isoform_summary.tsv"),
-      protein_fa = file.path(test_dir, "protein.fa"),
-      utr5_fa = file.path(test_dir, "utr5.fa"),
-      utr3_fa = file.path(test_dir, "utr3.fa"),
-      merge_table = paste0(test_txendcutr, ".merge.tsv"),
-      overlap_table = paste0(test_txendcutr, ".overlaps.tsv"),
+      gtf_filter = file.path(rs, "04-ORF_Identification/ORF_Filtration", sprintf("%s.%s.orf_filter.gtf", prefix, orf_filter)),
+      isoform_summary = file.path(rs, "04-ORF_Identification/ORF_Category", sprintf("%s.isoform_summary.tsv", prefix)),
+      protein_fa = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "protein.fa"),
+      utr5_fa = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "utr5.fa"),
+      utr3_fa = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "utr3.fa"),
+      merge_table = file.path(rs, "05-Truncation/txendcutr", sprintf("%s.txendcutr.merge.tsv", endome)),
+      overlap_table = file.path(rs, "05-Truncation/txendcutr", sprintf("%s.txendcutr.overlaps.tsv", endome)),
       ref_genome = "/home/MinaRyten/Guillermo/Resources/Genome/GRCh38.primary_assembly.genome.fa"
     ),
     output = list(
-      duckdb = file.path(test_dir, paste0("interactive.", test_orf_filter, ".w", test_width, ".", test_txEnd, ".duckdb"))
+      duckdb = file.path(rs, "temp", sprintf("%s.duckdb", endome))
     ),
     params = list(),
     wildcards = list(
-      prefix = basename(test_dir),
-      orf_filter = test_orf_filter,
-      width = test_width,
-      txEnd = test_txEnd
+      prefix = prefix,
+      orf_filter = orf_filter,
+      width = width,
+      txEnd = txEnd
     ),
     threads = 4,
     scriptdir = "workflow/scripts"
@@ -88,7 +89,6 @@ if (interactive()) {
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
 shhh <- suppressPackageStartupMessages
-
 shhh({
   library(GenomicFeatures)
   library(txdbmaker)
@@ -102,9 +102,11 @@ shhh({
   library(tidyverse)
 })
 
+## Package options
 options(readr.show_progress = FALSE)
 options(readr.show_col_types = FALSE)
 
+## Solve possible conflicts between packages
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
 conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
@@ -146,7 +148,7 @@ extractStartStopCodonTbl <- function(grl_cds, genome = fa){
   )
   canonical_codons <- list(start = "ATG", stop = c("TAA", "TAG", "TGA"))
 
-  codon_tbl <- function(type){
+  codonTbl <- function(type){
     codons_gr <- unlist(pmapFromTranscripts(codon_tx[[type]], grl_cds))
     codons_gr$transcript_id <- names(codons_gr)
     codons_gr <- codons_gr %>% dplyr::filter(hit)
@@ -161,7 +163,7 @@ extractStartStopCodonTbl <- function(grl_cds, genome = fa){
       dplyr::rename_with(~ paste0(type, "_codon_", .x), c(sequence, canonical))
   }
 
-  dplyr::full_join(codon_tbl("start"), codon_tbl("stop"), by = "transcript_id")
+  dplyr::full_join(codonTbl("start"), codonTbl("stop"), by = "transcript_id")
 }
 
 ############################################################################## #
@@ -313,8 +315,8 @@ message("Aggregating the transcript information...")
 
 transcript_tbl <- transcripts(txdb) %>% 
   tibble::as_tibble() %>% 
-  dplyr::left_join(isoform_summary, by = c("tx_name" = "transcript_id")) %>% 
-    dplyr::select(
+  dplyr::left_join(isoform_summary, by = c("tx_name" = "transcript_id")) %>%
+  dplyr::select(
     transcript_id = tx_name, gene_id, gene_name, gene_source, merge_gene_id,
     seqnames, start, end, strand,
     structural_category, subcategory, ref_isoform, ref_transcript_id,
@@ -378,48 +380,48 @@ message("Done.")
 
 ############################################################################## #
 # ---- 5. Interactive only steps ----
-if(interactive()){
-  shhh(library(dm))
+# if(interactive()){
+#   shhh(library(dm))
 
-  dm_draw_svg = function(dm, ...){
-    if (!requireNamespace("DiagrammeRsvg", quietly = TRUE)) {
-      stop(
-        "Package \"DiagrammeRsvg\" must be installed to use this function.",
-        call. = FALSE
-      )
-    }
-    
-    dm::dm_draw(dm = dm, ...) %>%
-      DiagrammeRsvg::export_svg() %>%
-      htmltools::HTML() %>%
-      htmltools::html_print()
-  }
+#   dmDrawSvg <- function(dm, ...){
+#     if (!requireNamespace("DiagrammeRsvg", quietly = TRUE)) {
+#       stop(
+#         "Package \"DiagrammeRsvg\" must be installed to use this function.",
+#         call. = FALSE
+#       )
+#     }
 
-  utrome <- dm(bins_tbl, utr5_tbl, utr3_tbl, cds_tbl, protein_tbl, transcript_tbl)
-  dm_examine_constraints(utrome) 
+#     dm::dm_draw(dm = dm, ...) %>%
+#       DiagrammeRsvg::export_svg() %>%
+#       htmltools::HTML() %>%
+#       htmltools::html_print()
+#   }
 
-  utrome <- utrome %>% 
-    dm_add_pk(bins_tbl, bin_id) %>% 
-    dm_add_pk(utr5_tbl, utr5_id) %>% 
-    dm_add_pk(utr3_tbl, utr3_id) %>% 
-    dm_add_pk(cds_tbl, cds_id) %>% 
-    dm_add_pk(protein_tbl, aa_id) %>% 
-    dm_add_pk(transcript_tbl, transcript_id)
+#   utrome <- dm(bins_tbl, utr5_tbl, utr3_tbl, cds_tbl, protein_tbl, transcript_tbl)
+#   dm_examine_constraints(utrome) 
 
-  utrome <- utrome %>% 
-    dm_add_fk(transcript_tbl, bin_id, bins_tbl) %>% 
-    dm_add_fk(transcript_tbl, utr5_id, utr5_tbl) %>% 
-    dm_add_fk(transcript_tbl, utr3_id, utr3_tbl) %>% 
-    dm_add_fk(transcript_tbl, cds_id, cds_tbl) %>% 
-    dm_add_fk(transcript_tbl, aa_id, protein_tbl) %>% 
-    dm_add_fk(cds_tbl, aa_id, protein_tbl)
+#   utrome <- utrome %>% 
+#     dm_add_pk(bins_tbl, bin_id) %>% 
+#     dm_add_pk(utr5_tbl, utr5_id) %>% 
+#     dm_add_pk(utr3_tbl, utr3_id) %>% 
+#     dm_add_pk(cds_tbl, cds_id) %>% 
+#     dm_add_pk(protein_tbl, aa_id) %>% 
+#     dm_add_pk(transcript_tbl, transcript_id)
 
-  dm_examine_constraints(utrome) 
+#   utrome <- utrome %>% 
+#     dm_add_fk(transcript_tbl, bin_id, bins_tbl) %>% 
+#     dm_add_fk(transcript_tbl, utr5_id, utr5_tbl) %>% 
+#     dm_add_fk(transcript_tbl, utr3_id, utr3_tbl) %>% 
+#     dm_add_fk(transcript_tbl, cds_id, cds_tbl) %>% 
+#     dm_add_fk(transcript_tbl, aa_id, protein_tbl) %>% 
+#     dm_add_fk(cds_tbl, aa_id, protein_tbl)
 
-  dm_draw_svg(utrome, rankdir = "TB", view_type = "all")
-  # dm_draw(utrome)
-  # dm_get_all_pks(utrome)
-  # dm_get_all_fks(utrome)
-  # dm_enum_pk_candidates(utrome, table = bins_tbl)
-  # dm_enum_fk_candidates(utrome, table = transcript_tbl, ref_table = bins_tbl)
-}
+#   dm_examine_constraints(utrome) 
+
+#   dmDrawSvg(utrome, rankdir = "TB", view_type = "all")
+#   # dm_draw(utrome)
+#   # dm_get_all_pks(utrome)
+#   # dm_get_all_fks(utrome)
+#   # dm_enum_pk_candidates(utrome, table = bins_tbl)
+#   # dm_enum_fk_candidates(utrome, table = transcript_tbl, ref_table = bins_tbl)
+# }

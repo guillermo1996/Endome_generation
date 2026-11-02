@@ -11,6 +11,7 @@ step02 = register_step(
         "stringtie_assembly_settings": build_tool_settings(config, "stringtie_assembly_settings", "stringtie_assembly_preset"),
         "merge_settings": build_tool_settings(config, "merge_settings"),
         "gffcompare_settings": build_tool_settings(config, "gffcompare_settings", "gffcompare_preset"),
+        "isopedia_settings": build_tool_settings(config, "isopedia_settings", "isopedia_preset")
     }
 )
 
@@ -18,10 +19,19 @@ step02 = register_step(
 stringtie_assembly_settings = resolve_preset(config, "stringtie_assembly_settings", "stringtie_assembly_preset")
 merge_settings = config["merge_settings"]
 gffcompare_settings = resolve_preset(config, "gffcompare_settings", "gffcompare_preset")
+isopedia_settings = resolve_preset(config, "isopedia_settings", "isopedia_preset")
 
 ### isomatch Download path
 isomatch_version = config.get("isomatch_version", "v0.6.0")
 isomatch_tar_url = f"https://github.com/zhengxinchang/isomatch/releases/download/{isomatch_version}/isomatch-{isomatch_version}-linux-x86_64.tar.gz"
+
+### Isopedia settings
+isopedia_version = config.get("isopedia_version", "v1.7.3")
+isopedia_tar_url = f"https://github.com/zhengxinchang/isopedia/releases/download/{isopedia_version}/isopedia-{isopedia_version}-linux-x86_64.tar.gz"
+
+isopedia_prebuilt_index = config["isopedia_prebuilt_index"]
+isopedia_prebuilt_dir = f"tools/{isopedia_prebuilt_index['name']}"
+isopedia_index_dir = config.get("isopedia_index") or isopedia_prebuilt_dir
 
 ## Functions
 ################################################################################
@@ -305,6 +315,92 @@ rule isomatch_fix:
     conda: "../envs/r.yaml"
     threads: 1
     script: "../scripts/S02b-isomatch_fix.R"
+
+### Isopedia rules
+rule download_isopedia:
+    message: "--- Downloading and Extracting Isopedia ---"
+    output:
+        isopedia_dir = directory(f"tools/isopedia-{isopedia_version}"),
+        executable = f"tools/isopedia-{isopedia_version}/isopedia"
+    params:
+        url = isopedia_tar_url
+    shell:
+        """
+        mkdir -p {output.isopedia_dir}
+        curl -L {params.url} | tar -xz -C {output.isopedia_dir}
+        """
+
+rule download_isopedia_index:
+    message: "--- Downloading the pre-built Isopedia index ---"
+    output:
+        index_dir = directory(isopedia_prebuilt_dir)
+    log: f"{isopedia_prebuilt_dir}.download.log"
+    params:
+        url = isopedia_prebuilt_index["url"]
+    shell:
+        """
+        mkdir -p {output.index_dir}
+        curl -L {params.url} | tar -xJ -C {output.index_dir} --strip-components=1 2> {log}
+        """
+
+rule isopedia_prepare_gtf:
+    message: "--- Sorting the assembly for Isopedia - {wildcards.dataset}.{wildcards.group}.{wildcards.merge_method} ---"
+    input:
+        gtf = rules.manual_filter.output.gtf
+    output:
+        gtf = step02.path("isopedia/{dataset}.{group}.{merge_method}.sorted.gtf")
+    log: step02.logs("isopedia/{dataset}.{group}.{merge_method}.sorted.log")
+    benchmark: step02.benchmark("isopedia/{dataset}.{group}.{merge_method}.sorted.tsv")
+    conda: "../envs/gffread.yaml"
+    shell:
+        """
+        gffread -T -o- {input.gtf} 2> {log} | LC_ALL=C sort -k1,1 -k4,4n | gffread -T - -o {output.gtf} 2>> {log}
+        """
+
+rule isopedia_isoform:
+    message: "--- Querying the Isopedia index - {wildcards.dataset}.{wildcards.group}.{wildcards.merge_method} ---"
+    input:
+        gtf = rules.isopedia_prepare_gtf.output.gtf,
+        index_dir = isopedia_index_dir,
+        executable = rules.download_isopedia.output.executable
+    output:
+        tsv = step02.path("isopedia/{dataset}.{group}.{merge_method}.isopedia.tsv.gz")
+    log: step02.logs("isopedia/{dataset}.{group}.{merge_method}.isopedia.log")
+    benchmark: step02.benchmark("isopedia/{dataset}.{group}.{merge_method}.isopedia.tsv")
+    params:
+        flank = isopedia_settings["flank"],
+        tss_wob = isopedia_settings["tss_wob"],
+        tes_wob = isopedia_settings["tes_wob"],
+        mono_exon_wobble = isopedia_settings["mono_exon_wobble"],
+        min_read = isopedia_settings["min_read"],
+        flags = isopedia_settings.get("isoform_flags", "")
+    threads: 12
+    shell:
+        """
+        {input.executable} isoform \
+        --idxdir {input.index_dir} --gtf {input.gtf} --output {output.tsv} \
+        --num-threads {threads} \
+        --flank {params.flank} --mono-exon-wobble {params.mono_exon_wobble} \
+        --min-read {params.min_read} --tss-wob {params.tss_wob} --tes-wob {params.tes_wob} \
+        {params.flags} 2>&1 | tee {log}
+        """
+
+rule isopedia_summary:
+    message: "--- Summarising the Isopedia evidence - {wildcards.dataset}.{wildcards.group}.{wildcards.merge_method} ---"
+    input:
+        tsv = rules.isopedia_isoform.output.tsv
+    output:
+        samples = step02.path("isopedia/{dataset}.{group}.{merge_method}.isopedia.samples.tsv"),
+        transcripts = step02.path("isopedia/{dataset}.{group}.{merge_method}.isopedia.transcripts.tsv"),
+        groups = step02.path("isopedia/{dataset}.{group}.{merge_method}.isopedia.groups.tsv")
+    log: step02.logs("isopedia/{dataset}.{group}.{merge_method}.isopedia_summary.log")
+    benchmark: step02.benchmark("isopedia/{dataset}.{group}.{merge_method}.isopedia_summary.tsv")
+    params:
+        min_read = isopedia_settings["min_read"],
+        group_by = isopedia_settings.get("group_by", "tissue")
+    threads: 8
+    conda: "../envs/r.yaml"
+    script: "../scripts/S02c-Isopedia_Summary.R"
 
 register_test_data_link(rules.isomatch_classify.output.annotated_gtf)
 register_test_data_link(rules.isomatch_merge.output.present_absent)

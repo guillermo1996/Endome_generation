@@ -1,41 +1,39 @@
+#!/usr/bin/env Rscript
+
 ## _________________________________________________
 ##
 ## scUTRquant pseudoalignment rates
 ##
 ## Aim: Gather the kallisto pseudoalignment rates of every ENDome of one
-##      {dataset}.{group}.{merge_method}, tabulate them and plot them per ENDome
-##      ({orf_filter}.w{width}.{txEnd}).
+## {dataset}.{group}.{merge_method}, tabulate them and plot them per ENDome
 ##
-## Project: ENDome generation - UTR Quantification
-##
-## Author: Guillermo Rocamora Pérez (guillermorocamora@gmail.com)
-##
+## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S06a-Pseudoalignment_Rates
 ## Date Created: 2026-10-01
 ##
-## Latest Version: v1.3 (2026-10-16)
-##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
+## Email: guillermorocamora@gmail.com
+##
+## Latest Version: v1.4 (2026-10-28)
 ##
 ## _________________________________________________
 ##
 ## Notes:
-##    - Input: one {endome_name}.run_info.tsv per ENDome (rule collect_run_info),
-##      one row per scUTRquant library. {orf_filter}, {width} and {txEnd} are
-##      read from the end of the file name.
-##    - params$regions (optional): the plots are split by the first of these
-##      strings found in each library name ("unknown" if none).
-##    - Boxplots are only drawn with >= params$min_samples_boxplot libraries.
+##    - {orf_filter}, {width} and {txEnd} are read from the end of the input
+##      file names.
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
 ## Changelog:
+##    - v1.4 (2026-10-28): Standardization of the script.
+##    - v1.3 (2026-10-16): Region column (params$regions) and one plot per
+##      metric.
+##    - v1.2 (2026-10-16): Reads the per-ENDome run_info tables.
+##    - v1.1 (2026-10-16): One scUTRquant config per ENDome.
 ##    - v1.0 (2026-10-01): Initial version.
-##    - v1.1 (2026-10-16): One config per ENDome (input$config_files).
-##    - v1.2 (2026-10-16): Reads the per-ENDome run_info TSVs instead of the
-##                         scUTRquant configs (test_data compatible).
-##    - v1.3 (2026-10-16): region column (params$regions) and one plot per metric
-##                         (output$pseudoaligned, output$unique).
-##
-## Contact: guillermorocamora@gmail.com
 ## _________________________________________________
+
+############################################################################## #
+# ---- 0. Setup ----
 
 #----------------------------------------------------------------------------- #
 ## 0.0 Define Snakemake interactive parameters ----
@@ -52,16 +50,20 @@ if (interactive()) {
       threads = 'numeric',
       scriptdir = 'character')
   )
-  test_dir <- "data/test_data/Wood.control.st_ref"
+
+  rs <- "results/Wood.control"
+  prefix <- "Wood.control.st_ref"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
 
   snakemake <- Snakemake(
     input = list(
-      run_info = list.files(test_dir, pattern = "^test\\..*\\.run_info\\.tsv$", full.names = TRUE)
+      run_info = list.files(file.path(rs, "06-UTR_Quantification/pseudoalignment"),
+                            pattern = paste0("^", prefix, "\\..*\\.run_info\\.tsv$"), full.names = TRUE)
     ),
     output = list(
-      tsv = file.path(test_dir, "interactive.pseudoalignment.tsv"),
-      p_pseudoaligned = file.path(test_dir, "interactive.pseudoalignment_rate.png"),
-      p_unique = file.path(test_dir, "interactive.pseudoalignment_unique.png")
+      tsv = file.path(rs, "temp", paste0(prefix, ".pseudoalignment.tsv")),
+      p_pseudoaligned = file.path(rs, "temp", paste0(prefix, ".pseudoalignment.png")),
+      p_unique = file.path(rs, "temp", paste0(prefix, ".unique.png"))
     ),
     params = list(
       min_samples_boxplot = 3,
@@ -73,7 +75,6 @@ if (interactive()) {
       group = "control",
       merge_method = "st_ref"
     ),
-    log = list(),
     threads = 1,
     scriptdir = "workflow/scripts"
   )
@@ -82,15 +83,16 @@ if (interactive()) {
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
 shhh <- suppressPackageStartupMessages
-
 shhh({
   library(conflicted)
   library(tidyverse)
 })
 
+## Package options
 options(readr.show_progress = FALSE)
 options(readr.show_col_types = FALSE)
 
+## Solve possible conflicts between packages
 conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
 conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
@@ -103,10 +105,10 @@ wc <- snakemake@wildcards
 
 min_samples_boxplot <- params$min_samples_boxplot
 prefix <- paste(wc$dataset, wc$group, wc$merge_method, sep = ".")
-regions <- unlist(params$regions)              # null in Snakemake -> NULL here
+regions <- unlist(params$regions)
 draw_regions <- length(regions) > 0
 
-#### Truncation-site colours (first two of ggsci's Simpsons palette, as in T07)
+### Plot colours and labels
 txEnd_colours <- c("3p" = "#FED439", "5p" = "#709AE1")
 txEnd_labels <- c("3p" = "3' ENDome", "5p" = "5' ENDome")
 metric_labels <- c("p_pseudoaligned" = "Pseudoaligned [%]", "p_unique" = "Uniquely pseudoaligned [%]")
@@ -116,8 +118,8 @@ orf_filter_labels <- c("ref_pc" = "Reference protein-coding", "pc_novel" = "Codi
 #----------------------------------------------------------------------------- #
 ## 0.3 Helper Functions ----
 
-#' Order truncation widths numerically, with non-numeric widths (e.g. "UTR") last
-width_levels <- function(width) {
+#' Order the truncation widths numerically, with non-numeric widths (e.g. "UTR") last
+widthLevels <- function(width) {
   width <- unique(width)
   num <- suppressWarnings(as.numeric(width))
   c(width[!is.na(num)][order(num[!is.na(num)])], sort(width[is.na(num)]))
@@ -125,13 +127,15 @@ width_levels <- function(width) {
 
 #' Box plot of one pseudoalignment metric per ENDome
 #'
-#' @param plot_data The pseudoalignment table, with width as an ordered factor
-#' @param metric Column to plot ("p_pseudoaligned" or "p_unique")
-#' @param title Plot title
-#' @return A ggplot (regions as facet rows when draw_regions is TRUE)
-plot_metric <- function(plot_data, metric, title) {
+#' @param plot_data Pseudoalignment table, with width as an ordered factor.
+#' @param metric Column to plot ("p_pseudoaligned" or "p_unique").
+#' @param title Plot title.
+#' @param n_samples Number of scUTRquant libraries.
+#'
+#' @returns A ggplot, with the regions as facet rows when `draw_regions` is TRUE.
+plotMetric <- function(plot_data, metric, title, n_samples) {
   group_cols <- c("orf_filter", "width", "txEnd", if (draw_regions) "region")
-    median_labels <- plot_data %>%
+  median_labels <- plot_data %>%
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
     dplyr::summarise(rate = median(.data[[metric]]), label_y = max(.data[[metric]]), .groups = "drop")
 
@@ -182,14 +186,14 @@ if (any(is.na(pseudo_table$txEnd))) {
 readr::write_tsv(pseudo_table, smk_outputs$tsv)
 
 ############################################################################## #
-# ---- 2. Pseudoalignment plot ----
+# ---- 2. Pseudoalignment plots ----
 n_samples <- dplyr::n_distinct(pseudo_table$sample_id)
 
 plot_data <- pseudo_table %>%
-  dplyr::mutate(width = factor(width, levels = width_levels(width)))
+  dplyr::mutate(width = factor(width, levels = widthLevels(width)))
 
-pseudoaligned_plot <- plot_metric(plot_data, "p_pseudoaligned", "Kallisto Bus - Pseudoalignment rate")
-unique_plot <- plot_metric(plot_data, "p_unique", "Kallisto Bus - Unique pseudoalignment rate")
+pseudoaligned_plot <- plotMetric(plot_data, "p_pseudoaligned", "Kallisto Bus - Pseudoalignment rate", n_samples)
+unique_plot <- plotMetric(plot_data, "p_unique", "Kallisto Bus - Unique pseudoalignment rate", n_samples)
 
 plot_height <- if (draw_regions) 3 + 2.5 * dplyr::n_distinct(plot_data$region) else 5.5
 ggsave(smk_outputs$p_pseudoaligned, plot = pseudoaligned_plot, width = 11, height = plot_height, units = "in", dpi = 300)

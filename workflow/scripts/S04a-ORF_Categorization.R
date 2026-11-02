@@ -2,42 +2,36 @@
 
 ## _________________________________________________
 ##
-## Transcript classification by ORF status
+## Transcript categorization by ORF status
+##
+## Aim: Merge the ORFannotate summary, the ORF protein sequences, the pigeon
+## classification and the reference annotation into one isoform summary table,
+## adding a subset of it to the GTF as attributes
 ##
 ## Author: Guillermo Rocamora Pérez
+## Project: ENDome generation - S04a-ORF_Categorization
 ## Date Created: 2025-03-26
+##
 ## Copyright (c) Guillermo Rocamora Pérez, 2026
 ## Email: guillermorocamora@gmail.com
 ##
-## Latest version: v1.1 (2026-07-16)
+## Latest Version: v1.5 (2026-10-29)
+##
 ## _________________________________________________
 ##
-## - Notes:
-##   + Based on ORFannotate v1.0.0 output.
-##   + Merges the ORFannotate summary, reference annotation, ORF protein
-##   sequences and Pigeon classification into one per-transcript isoform
-##   summary table.
-##   + ref_transcript_id: the reference transcript of each transcript. The
-##   transcript itself when it is a reference transcript, otherwise pigeon's
-##   associated_transcript for full-splice (FSM) and incomplete-splice (ISM)
-##   matches. NA for every other category.
-##   + ref_isoform: TRUE for pigeon FSM transcripts, i.e. same intron chain as
-##   a reference transcript (the ends may differ). Replaces in_ref.
-##   + ref_transcript_type: biotype of the reference transcript, FSM only.
-##   + ref_gene_type: biotype of the reference gene.
-##   + A subset of the isoform summary (transcript_id, gene_id, gene_name,
-##   structural_category, subcategory, ref_isoform, orfannotate_type,
-##   ref_transcript_type, ref_gene_type) is joined back onto the GTF as
-##   attributes.
+## Notes:
+##    - Based on the ORFannotate v1.0.0 output.
+##    - Developed with the assistance of Claude Code (Opus 5.5).
 ##
-## - Changelog:
-##   + v1.2 (2026-09-29): reference transcript, gene and biotypes from pigeon's
-##   FSM/ISM matches; in_ref replaced by ref_isoform; added ref_transcript_id,
-##   gene_source and subcategory (GTF); gene_name is NA for merge loci.
-##   + v1.1 (2026-07-16): adapted to work with different transcript assembly
-##   merging software.
-##
-## - Please contact guillermorocamora@gmail.com for further assistance.
+## Changelog:
+##    - v1.5 (2026-10-29): Added gene matching for NIC/NNC transcripts.
+##    - v1.4 (2026-10-28): Standardization of the script.
+##    - v1.3 (2026-10-20): Accepts Ensembl GTFs.
+##    - v1.2 (2026-09-29): Reference transcript, gene and biotypes from the
+##      pigeon FSM/ISM matches. in_ref replaced by ref_isoform. Added
+##      ref_transcript_id, gene_source and subcategory.
+##    - v1.1 (2026-07-16): Support for other transcriptome merging methods.
+##    - v1.0 (2025-03-26): Initial version.
 ## _________________________________________________
 
 ############################################################################## #
@@ -54,69 +48,88 @@ if (interactive()) {
       output = 'list',
       params = 'list',
       wildcards = 'list',
-      threads = 'numeric'
-    )
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
   )
-  ## dataset.group.merge_method folder created by the `test_data` rule. Outputs
-  ## use the "interactive" prefix so they never overwrite the linked results.
-  test_dir <- "data/test_data/Ebbert.control.iso_ref"
+
+  rs <- "results/Wood.control"
+  prefix <- "Wood.control.st_ref"
+  dir.create(file.path(rs, "temp"), showWarnings = FALSE)
+
   snakemake <- Snakemake(
-    input = list(gtf = file.path(test_dir, "ORFannotate_annotated.gtf"),
-                 ref_annotation = "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf",
-                 protein_fa = file.path(test_dir, "protein.fa"),
-                 orf_summary = file.path(test_dir, "ORFannotate_summary.tsv"),
-                 pigeon_summary = file.path(test_dir, "test.pigeon_classification.filtered_lite_classification.txt")),
-    output = list(gtf = file.path(test_dir, "interactive.orf_annotated.gtf"),
-                  isoform_summary = file.path(test_dir, "interactive.isoform_summary.tsv")),
-    threads = 1
+    input = list(
+      gtf = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "ORFannotate_annotated.gtf"),
+      ref_annotation = "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf",
+      protein_fa = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "protein.fa"),
+      orf_summary = file.path(rs, "04-ORF_Identification/ORFannotate", prefix, "ORFannotate_summary.tsv"),
+      pigeon_summary = file.path(rs, "03-Artifact_Removal/Classify_Filter", paste0(prefix, ".pigeon_classification.filtered_lite_classification.txt"))
+    ),
+    output = list(
+      gtf = file.path(rs, "temp", paste0(prefix, ".orf_annotated.gtf")),
+      isoform_summary = file.path(rs, "temp", paste0(prefix, ".isoform_summary.tsv"))
+    ),
+    params = list(),
+    wildcards = list(
+      prefix = prefix
+    ),
+    threads = 1,
+    scriptdir = "workflow/scripts"
   )
 }
 
 #----------------------------------------------------------------------------- #
 ## 0.1 Required Libraries ----
-suppressMessages({
+shhh <- suppressPackageStartupMessages
+shhh({
   library(GenomicRanges)
   library(rtracklayer)
   library(Biostrings)
+  library(conflicted)
   library(tidyverse)
 })
 
-## Package options - these are some examples and do not modify the script usage.
-options(dplyr.summarise.inform = FALSE)
-options(lifecycle_verbosity = "warning")
-options(readr.show_progress = F)
-options(readr.show_col_types = F)
+## Package options
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+## Solve possible conflicts between packages
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
 
 #----------------------------------------------------------------------------- #
-## 0.2 Script Paths ----
+## 0.2 Script Parameters ----
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
 
-### Input Paths
-input_gtf_path <- snakemake@input$gtf
-input_reference_gtf_path <- snakemake@input$ref_annotation
-input_protein_seqs <- snakemake@input$protein_fa
-input_orf_summary <- snakemake@input$orf_summary
-input_pigeon_class <- snakemake@input$pigeon_summary
-
-### Output Paths
-output_gtf_path <- snakemake@output$gtf
-output_tsv_path <- snakemake@output$isoform_summary
-
-#### Create output directory
-dir.create(dirname(output_gtf_path), showWarnings = F, recursive = T)
-
-#----------------------------------------------------------------------------- #
-## 0.3 Script Parameters ----
-
-## FSM transcripts will contain reference genes and biotypes, while ISM will only take the reference gene
+### FSM transcripts take the reference transcript, gene and biotypes.
 ref_isoform_categories <- c("full-splice_match")
+
+### ISM transcripts take the reference gene
 ref_gene_categories <- c("full-splice_match", "incomplete-splice_match")
 
+### NIC/NNC transcripts take pigeon's associated gene
+ref_novel_categories <- c("novel_in_catalog", "novel_not_in_catalog")
+
+### Isoform summary columns added to the GTF
+column_to_gtf <- c("transcript_id", "gene_id", "gene_name", "ref_transcript_id", "structural_category", "subcategory",
+                   "ref_isoform", "orfannotate_type", "ref_transcript_type", "ref_gene_type")
+
+### Merge attributes removed from the GTF
+columns_to_remove <- c("gene_name", "gene_id", "xloc", "ref_gene_id", "cmp_ref", "class_code", "tss_id", "exon_number",
+                       "contained_in", "cmp_ref_gene", "ref_gene_name", "ref_transcript_id")
+
 #----------------------------------------------------------------------------- #
-## 0.4 User Input arguments ----
-#----------------------------------------------------------------------------- #
-## 0.5 Helper Functions ----
-StringSet_to_tibble <- function(string_set){
-  string_set_df <- data.frame(
+## 0.3 Helper Functions ----
+
+#' ORFannotate protein FASTA to a tibble
+#'
+#' @param string_set AAStringSet with ORFannotate headers
+#'   ("<transcript_id> gene_id=...;coding_prob=...").
+#'
+#' @returns Tibble with `transcript_id`, `gene_id`, `coding_prob` and `sequence`.
+orfFastaToTibble <- function(string_set){
+  data.frame(
     header = names(string_set),
     sequence = as.character(string_set)
   ) %>%
@@ -127,50 +140,51 @@ StringSet_to_tibble <- function(string_set){
       coding_prob = str_extract(header, "coding_prob=([0-9.]+)") %>% str_remove("coding_prob=") %>% as.numeric()
     ) %>%
     dplyr::select(transcript_id, gene_id, coding_prob, sequence)
-
-  return(string_set_df)
 }
 
 ############################################################################## #
-# ---- 1. Load transcriptome and SQ3 Classification ----
-gtf_df <- rtracklayer::import.gff(input_gtf_path) %>% tibble::as_tibble()
-annotation_gtf <- rtracklayer::readGFF(input_reference_gtf_path) %>% tibble::as_tibble()
-pigeon_class <- readr::read_delim(input_pigeon_class)
+# ---- 1. Load the inputs ----
+message("Loading the transcriptome, the reference annotation and the ORFannotate/pigeon outputs...")
+gtf_df <- rtracklayer::import.gff(smk_inputs$gtf) %>% tibble::as_tibble()
+annotation_gtf <- rtracklayer::readGFF(smk_inputs$ref_annotation) %>% tibble::as_tibble()
+pigeon_class <- readr::read_delim(smk_inputs$pigeon_summary)
 
-protein_fa <- Biostrings::readAAStringSet(input_protein_seqs)
-orf_summary <- readr::read_tsv(input_orf_summary)
+protein_fa <- Biostrings::readAAStringSet(smk_inputs$protein_fa)
+orf_summary <- readr::read_tsv(smk_inputs$orf_summary)
 
 ############################################################################## #
-# ---- 2. Generate the Isoform information table ----
+# ---- 2. Isoform summary ----
 
-## Generate the information that will be appended to the isoform summary
+#----------------------------------------------------------------------------- #
+## 2.1 Select the columns of each input ----
 orf_summary_filter <- orf_summary %>%
-  dplyr::select(transcript_id, has_orf, 
+  dplyr::select(transcript_id, has_orf,
     orf_len = orf_nt_len, utr5_len = utr5_nt_len, utr3_len = utr3_nt_len,
-    coding_class, total_junctions, NMD_sensitive)
+    coding_prob, coding_class, total_junctions, NMD_sensitive)
 
-annotation_gtf_filter <- annotation_gtf %>% 
-  dplyr::filter(type == "transcript") %>% 
+### Ensembl GTFs use *_biotype instead of *_type
+annotation_gtf_filter <- annotation_gtf %>%
+  dplyr::filter(type == "transcript") %>%
+  dplyr::rename(dplyr::any_of(c(gene_type = "gene_biotype", transcript_type = "transcript_biotype"))) %>%
   dplyr::select(transcript_id, gene_id, gene_type, gene_name, transcript_type)
 
-pigeon_class_filter <- pigeon_class %>% 
-  dplyr::select(transcript_id = isoform, structural_category, subcategory, associated_transcript, ref_length, ref_exons)
+pigeon_class_filter <- pigeon_class %>%
+  dplyr::select(transcript_id = isoform, structural_category, subcategory, associated_gene, associated_transcript, ref_length, ref_exons)
 
-protein_df <- StringSet_to_tibble(protein_fa)
+protein_df <- orfFastaToTibble(protein_fa)
 
-## From the main GTF file, extract the transcripts and merge with ORFannotate
-## summary table, the ORF sequences and the Pigeon Classification. The protein
-## sequences are joined by the merge locus, as written by ORFannotate.
+#----------------------------------------------------------------------------- #
+## 2.2 Join the inputs ----
+
+### ORFannotate writes the merge locus as gene_id of the protein sequences
 isoform_summary <- gtf_df %>%
   dplyr::filter(type == "transcript") %>%
-  dplyr::select(transcript_id, merge_gene_id = gene_id) %>% 
-  dplyr::left_join(orf_summary_filter, by = "transcript_id") %>% 
-  dplyr::left_join(protein_df, by = c("transcript_id", "merge_gene_id" = "gene_id")) %>% 
+  dplyr::select(transcript_id, merge_gene_id = gene_id) %>%
+  dplyr::left_join(orf_summary_filter, by = "transcript_id") %>%
+  dplyr::left_join(protein_df %>% dplyr::select(-coding_prob), by = c("transcript_id", "merge_gene_id" = "gene_id")) %>%
   dplyr::left_join(pigeon_class_filter, by = "transcript_id")
 
-## Reference transcript: the transcript itself when it is in the reference,
-## otherwise pigeon's match for FSM/ISM. Its gene and biotypes come from the
-## reference annotation.
+### Add reference transcript
 isoform_summary <- isoform_summary %>%
   dplyr::mutate(ref_transcript_id = dplyr::case_when(
     transcript_id %in% annotation_gtf_filter$transcript_id ~ transcript_id,
@@ -180,17 +194,32 @@ isoform_summary <- isoform_summary %>%
   dplyr::select(-associated_transcript) %>%
   dplyr::left_join(annotation_gtf_filter, by = c("ref_transcript_id" = "transcript_id"))
 
-# Clean and sort the data
-isoform_summary <- isoform_summary %>% 
-  dplyr::rename(orfannotate_type = coding_class, orf_seq = sequence) %>% 
+### Associated NIC/NNC transcripts based on gene_id
+annotation_gene_filter <- annotation_gtf_filter %>% dplyr::distinct(gene_id, gene_name, gene_type)
+
+isoform_summary <- isoform_summary %>%
+  dplyr::mutate(novel_gene_id = dplyr::if_else(
+    is.na(gene_id) & structural_category %in% ref_novel_categories & associated_gene %in% annotation_gene_filter$gene_id,
+    associated_gene, NA_character_)) %>%
+  dplyr::left_join(annotation_gene_filter, by = c("novel_gene_id" = "gene_id"), suffix = c("", "_novel")) %>%
+  dplyr::mutate(
+    gene_id = dplyr::coalesce(gene_id, novel_gene_id),
+    gene_name = dplyr::coalesce(gene_name, gene_name_novel),
+    gene_type = dplyr::coalesce(gene_type, gene_type_novel)) %>%
+  dplyr::select(-novel_gene_id, -gene_name_novel, -gene_type_novel, -associated_gene)
+
+#----------------------------------------------------------------------------- #
+## 2.3 Clean and sort ----
+isoform_summary <- isoform_summary %>%
+  dplyr::rename(orfannotate_type = coding_class, orf_seq = sequence) %>%
   dplyr::mutate(
     ref_isoform = structural_category %in% ref_isoform_categories,
     gene_source = dplyr::if_else(is.na(gene_id), "merge", "reference"),
     gene_id = dplyr::coalesce(gene_id, merge_gene_id),
     ref_transcript_type = dplyr::if_else(ref_isoform, transcript_type, NA_character_),
     ref_gene_type = gene_type
-  ) %>% 
-  dplyr::select(-transcript_type, -gene_type) %>% 
+  ) %>%
+  dplyr::select(-transcript_type, -gene_type) %>%
   dplyr::relocate(
     transcript_id, gene_id, gene_name, gene_source, merge_gene_id,
     structural_category, subcategory, ref_isoform, ref_transcript_id,
@@ -199,17 +228,14 @@ isoform_summary <- isoform_summary %>%
   )
 
 ############################################################################## #
-# ---- 3. Add relevant information to the gtf ----
-column_to_gtf <- c("transcript_id", "gene_id", "gene_name", "ref_transcript_id", "structural_category", "subcategory", "ref_isoform", "orfannotate_type", "ref_transcript_type", "ref_gene_type")
-columns_to_remove <- c("gene_name", "gene_id", "xloc", "ref_gene_id", "cmp_ref", "class_code", "tss_id", "exon_number", "contained_in", "cmp_ref_gene", "ref_gene_name", "ref_transcript_id")
-
+# ---- 3. Add the isoform summary to the GTF ----
 gtf_gr <- gtf_df %>%
-  dplyr::select(-any_of(columns_to_remove)) %>%
-  dplyr::left_join(isoform_summary %>% dplyr::select(all_of(column_to_gtf)), by = "transcript_id") %>%
+  dplyr::select(-dplyr::any_of(columns_to_remove)) %>%
+  dplyr::left_join(isoform_summary %>% dplyr::select(dplyr::all_of(column_to_gtf)), by = "transcript_id") %>%
   dplyr::rename(ref_tx_type = ref_transcript_type) %>%
-  makeGRangesFromDataFrame(keep.extra.columns = T)
+  makeGRangesFromDataFrame(keep.extra.columns = TRUE)
 
 ############################################################################## #
-# ---- 4. Output ----
-gtf_gr %>% rtracklayer::export(output_gtf_path, format="GTF")
-isoform_summary %>% readr::write_tsv(output_tsv_path)
+# ---- 4. Write the outputs ----
+rtracklayer::export(gtf_gr, smk_outputs$gtf, format = "GTF")
+readr::write_tsv(isoform_summary, smk_outputs$isoform_summary)

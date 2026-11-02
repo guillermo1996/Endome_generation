@@ -29,20 +29,28 @@ pipeline_defaults:
   pre-truncated_gtf: null # Input a custom truncated GTF to skip truncation
   pre-truncated_merge_tsv: null # Input a custom truncated merge TSV to skip truncation
 
-pipeline_inputs:
+pipeline_runs:
   - dataset: "Wood"
     group: "control"
+    orf_filter_preset: ["ref_pc", "pc_novel"]
     trunc_site: ["3p", "5p"]
     trunc_width: [500, 300]
-  - dataset: "gencode"
+  - dataset: "Wood"
+    group: "control"
+    trunc_site: ["5p"]
+    trunc_width: [300]
+  - dataset: "gencode_baseline"
     pre-assembled_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
     skip_pigeon_filter: True
-    trunc_site: "5p"
-    trunc_width: 500 
-  - dataset: "gencode_3UTR"
-    pre-truncated_gtf: "data/custom_inputs/gencode.v48.pc_3UTR.gtf"
-    trunc_site: "3p" # only for naming purposes
-    trunc_width: "UTR" # only for naming purposes
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "3p"
+    trunc_width: [null, "UTR", "UTR_exact"]
+  - dataset: "gencode_skip"
+    pre-truncated_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
+    skip_pigeon_filter: True
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "3p"
+    trunc_width: null 
     
 ############################
 # 02. TOOL PRESETS
@@ -54,6 +62,12 @@ minimap2_preset: default
 ## Step 02 - Transcriptome Assembly
 stringtie_assembly_preset: unguided
 gffcompare_preset: default
+isopedia_preset: default
+
+## Isopedia index used to validate the step 02 assemblies. For a custom index,
+## build it yourself with `isopedia profile/merge/index` (v1.7.3) and give the
+## path of its folder. Otherwise, leave null
+isopedia_index: null
 
 ## Step 03 - Artifact Removal
 pigeon_preset: default
@@ -96,13 +110,12 @@ benchmark_path: ".benchmarks"
 ###   path       path to the FASTQ (.fastq / .fastq.gz) or BAM file
 input_endome_samples: "data/endome_input_samples.tsv"
 
-
 ## Single-nucleus dataset on which the ENDome is quantified (step 06) and
 ## tested for differential UTR usage (step 07). File formats and how to prepare
 ## them for a new dataset: docs/UTR_quantification_and_usage.md
 sc_dataset:
   # Step 06: scUTRquant sample sheet and config template
-  sample_sheet: "data/Hardy_snRNAseq/sample_sheet_ACG.csv"
+  sample_sheet: "data/Hardy_snRNAseq/sample_sheet.csv"
   scUTRquant_config_template: "config/scUTRquant_config.yaml"
 
   # Step 07: cell annotation and sample tables (TSV, built by T07a for Hardy)

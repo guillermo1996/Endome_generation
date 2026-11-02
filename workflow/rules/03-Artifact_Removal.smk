@@ -69,7 +69,7 @@ rule pigeon_classify:
     threads: 16
     conda: "../envs/pigeon.yaml"
     shell:
-        "pigeon classify -d {params.pigeon_output} -o {wildcards.prefix}.pigeon -j {threads} --log-level INFO "
+        "pigeon classify --gene-id -d {params.pigeon_output} -o {wildcards.prefix}.pigeon -j {threads} --log-level INFO "
         "{input.sorted_gtf} {input.sorted_annotation} {input.genome} 2>&1 | tee {log}"
 
 rule pigeon_filter:

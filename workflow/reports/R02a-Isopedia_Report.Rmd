@@ -1,0 +1,600 @@
+---
+title: Isopedia Validation
+subtitle: Read support of the assembled transcriptome in public long-read data
+author:
+- name: "Guillermo Rocamora Pérez"
+  affiliation: UCL / Cambridge - Version 1.0
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    figure_caption: yes
+    code_folding: hide
+    theme: paper
+    highlight: pygments
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+always_allow_html: true
+link-citations: true
+notes-after-punctuation: false
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+shhh <- suppressPackageStartupMessages
+
+shhh({
+  library(fs)
+  library(conflicted)
+  library(tidyverse)
+})
+
+options(readr.show_progress = FALSE)
+options(readr.show_col_types = FALSE)
+
+conflicted::conflict_prefer_all("dplyr", quiet = TRUE)
+conflicted::conflict_prefer_all("tidyr", quiet = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      out.width = "100%", fig.align = "center", dpi = 150,
+                      fig.height = 5.5, fig.width = 9.5)
+options(knitr.graphics.error = FALSE)
+```
+
+```{r setup-theme, echo = F, results = "asis"}
+## Custom sciRmdTheme with increased width.
+## Please ask guillermorocamora@gmail.com for more details.
+## Download from devtools::install_github("https://github.com/guillermo1996/grpSciRmdTheme")
+if(suppressWarnings(require(grpSciRmdTheme, quietly = TRUE))){
+  grpSciRmdTheme::set.theme(
+    theme = "default",
+    color = NULL,
+    header.sticky = FALSE,
+    list.group.icon = "arrow",
+    font.family = "Arial",
+    font.color = "black",
+    header.color = "darkblue",
+    figure.perc = 100
+  )
+}
+
+## A bug in recent versions of KableExtra requires to load the HTML classes in
+## some circumstances.
+kableExtra::html_dependency_lightable()
+
+## Custom styles for the output html
+cat('
+<style type="text/css">
+table { caption-side: bottom }
+
+.dataTables_wrapper caption {
+  caption-side: bottom;
+  text-align: left;
+  font-size: 0.85em;
+  color: #666;
+}
+
+</style>')
+
+## Same base theme as R05a-ENDome_Report.Rmd
+theme_endome <- function(base_size = 11, legend_pos = "top"){
+  bs <- base_size
+  theme_gray(base_size = bs) +
+    theme(
+      plot.title = element_text(size = bs * 1.27, face = "bold", hjust = 0, vjust = 1, margin = margin(b = bs/2)),
+      plot.subtitle = element_text(size = bs*0.82),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+      panel.background = element_rect(fill = "#FBFBFB", color = NA),
+      axis.text.x = ggplot2::element_text(color = "black", size = bs*0.82, angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(color = "black", size = bs*0.82),
+      axis.title.x = ggplot2::element_text(face = "bold", size = bs, margin = margin(t = 5)),
+      axis.title.y = ggplot2::element_text(face = "bold", size = bs, margin = margin(r = 10)),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "#444444", linewidth = 0.05, linetype = 2, inherit.blank = TRUE),
+      panel.grid.major.x = element_line(color = "#888888", linewidth = 0.05, linetype = 1, inherit.blank = TRUE),
+      legend.title = element_text(size = bs * 1.09),
+      legend.text = element_text(size = bs * 0.82),
+      legend.position  = legend_pos,
+      legend.key = element_rect(colour = "black", linewidth = 0.01),
+      legend.key.size = unit(bs*1.5, "pt"),
+      strip.text.x = element_text(color = "black", face = "bold", size = bs*0.82),
+      strip.background = element_rect(color = "black", linewidth = 0.5, linetype = "solid"),
+      strip.text.y = element_text(color = "black", face = "bold", size = bs*0.82),
+      plot.margin = margin(0.5, 0.5, 0.2, 0.5, "cm"),
+    )
+}
+```
+
+```{r snakemake-preamble, echo = FALSE}
+# Define Snakemake interactive parameters ----
+if (!exists("snakemake")) {
+  library(methods)
+  Snakemake <- setClass(
+    "Snakemake",
+    slots = c(
+      input = 'list',
+      output = 'list',
+      params = 'list',
+      wildcards = 'list',
+      log = 'list',
+      threads = 'numeric',
+      scriptdir = 'character')
+  )
+  ## dataset.group.merge_method folder created by the `test_data` rule.
+  ## Absolute paths, as knitr runs from the Rmd folder.
+  repo_dir <- "~/RytenLab-Research/40-ENDome_generation"
+  test_dir <- file.path(repo_dir, "data/test_data/Wood.control.st_ref")
+  snakemake <- Snakemake(
+    input = list(
+      samples = file.path(test_dir, "test.isopedia.samples.tsv"),
+      transcripts = file.path(test_dir, "test.isopedia.transcripts.tsv"),
+      groups = file.path(test_dir, "test.isopedia.groups.tsv"),
+      gtf = file.path(test_dir, "test.annotated.clean.gtf")
+    ),
+    output = list(
+      html = file.path(test_dir, "interactive.isopedia_report.html")
+    ),
+    params = list(
+      isopedia_version = "v1.7.3",
+      isopedia_index = "tools/isopedia_index_hs_v1.0",
+      isopedia_settings = list(flank = 10, tss_wob = 50, tes_wob = 50, mono_exon_wobble = 50,
+                               min_read = 1, isoform_flags = "", group_by = "tissue")
+    ),
+    wildcards = list(dataset = "Wood", group = "control", merge_method = "st_ref"),
+    threads = 1,
+    scriptdir = file.path(repo_dir, "workflow/scripts")
+  )
+}
+```
+
+# Introduction
+
+This report checks how much read support the transcripts of one step 02 assembly have in an [Isopedia](https://github.com/zhengxinchang/isopedia) index. By default, the index is the pre-built human one: 1,007 public long-read RNA-seq samples (PacBio and ONT, ENCODE and SRA). Isopedia does not discover transcripts: for each transcript of the query GTF, it counts the reads of every index sample that support it.
+
+Two kinds of evidence are reported per transcript and sample:
+
+- **Full-splice-match (FSM) reads**: reads whose whole intron chain matches the transcript (within `flank` bp at each junction). A sample is *positive* when it has at least `min_read` FSM reads. Of these, Isopedia also counts how many start (**TSS**) and end (**TES**) within `tss_wob`/`tes_wob` bp of the transcript's annotated ends.
+- **EM reads**: partial (truncated) reads compatible with several transcripts, shared out between them by an expectation-maximization step. They contribute to abundance, but not to detection.
+
+The report covers three questions:
+
+1. **How many assembled transcripts are seen in public data**, split into reference and novel transcripts and by class code.
+2. **How well are the 5' and 3' ends supported**, which matters for the 5'-first truncation.
+3. **Where (which tissues) the evidence comes from**, and how unequal the abundance of transcripts of the same gene is. The latter is a preview of non-uniform member weights for the Bin Information Content.
+
+A transcript without evidence is not necessarily an artifact: the index lacks some tissues (e.g. substantia nigra) and conditions (e.g. Parkinson's disease), and most public libraries are not cap-selected, so 5' ends are often truncated.
+
+# Hidden Section {.unlisted .unnumbered .hidden-heading .tabset .break4}
+
+## File paths {-}
+
+```{r script-paths}
+# Snakemake inputs
+smk_inputs <- snakemake@input
+smk_outputs <- snakemake@output
+
+main_path <- fs::path_expand("~/RytenLab-Research/40-ENDome_generation/")
+rel_to_main <- \(p, base = main_path) fs::path_rel(fs::path_expand(p), fs::path_expand(base))
+
+for (p in c(smk_inputs$samples, smk_inputs$transcripts, smk_inputs$groups, smk_inputs$gtf)) {
+  if (!file.exists(path.expand(p))) stop("Input not found: ", p, call. = FALSE)
+}
+
+tibble::tibble(
+  Input = c("Index samples", "Transcript summary", "Group summary", "Assembly GTF", "Report"),
+  Path = c(smk_inputs$samples, smk_inputs$transcripts, smk_inputs$groups, smk_inputs$gtf, smk_outputs$html) %>%
+    vapply(\(p) as.character(rel_to_main(p)), character(1))
+) %>%
+  kableExtra::kable(caption = "Paths resolved for this render.") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE) %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "20%") %>%
+  kableExtra::column_spec(2, width = "80%")
+```
+
+## Variables and parameters {-}
+
+```{r script-params}
+# Snakemake parameters
+wc <- snakemake@wildcards
+smk_params <- snakemake@params
+iso_settings <- smk_params$isopedia_settings
+run_id <- paste(wc$dataset, wc$group, wc$merge_method, sep = ".")
+
+# Relevant for the notebook
+min_read <- as.numeric(iso_settings$min_read)
+min_fsm_ends <- 10 # FSM reads needed to show the TSS/TES support of a transcript
+min_group_samples <- 5 # Samples needed to show a sample group
+n_top_table <- 1000 # Novel transcripts listed in the final table
+
+# Themes
+origin_colors <- c(Reference = "#4E79A7", Novel = "#E15759")
+status_colors <- c("Full-splice match" = "#59A14F", "Partial reads only (EM)" = "#EDC948", "No evidence" = "#BAB0AC")
+
+tibble::tibble(
+  Parameter = c("Assembly", "Isopedia version", "Index", "flank", "tss_wob / tes_wob", "mono_exon_wobble",
+                "min_read", "isoform_flags", "group_by"),
+  Value = c(run_id, smk_params$isopedia_version, smk_params$isopedia_index, iso_settings$flank,
+            paste(iso_settings$tss_wob, "/", iso_settings$tes_wob), iso_settings$mono_exon_wobble,
+            iso_settings$min_read, ifelse(nzchar(iso_settings$isoform_flags), iso_settings$isoform_flags, "-"),
+            iso_settings$group_by)
+) %>%
+  kableExtra::kable(caption = "Isopedia query parameters.") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE) %>%
+  kableExtra::column_spec(1, bold = TRUE, width = "25%")
+```
+
+## Helper functions {-}
+
+```{r helper-functions}
+pct <- \(x, accuracy = 0.1) scales::percent(x, accuracy = accuracy)
+fmt <- \(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
+
+#' gffcompare class codes, with the code kept as a prefix so the order is stable
+classCodeLabel <- function(code){
+  labels <- c(
+    "=" = "Reference match", "c" = "Contained in reference", "k" = "Contains reference",
+    "m" = "Retained intron (full)", "n" = "Retained intron (partial)", "j" = "Novel junction(s)",
+    "e" = "Single exon, pre-mRNA fragment", "o" = "Other same-strand overlap",
+    "s" = "Opposite-strand intron overlap", "x" = "Antisense exonic overlap",
+    "i" = "Fully intronic", "y" = "Contains a reference in an intron",
+    "p" = "Polymerase run-on", "r" = "Repeat", "u" = "Intergenic"
+  )
+  dplyr::if_else(is.na(code), NA_character_, paste0(code, ": ", dplyr::coalesce(labels[code], "Other")))
+}
+
+#' Format a kable table with the report style
+styleKable <- function(df, caption, ...){
+  df %>%
+    kableExtra::kable(caption = caption, format = "html", ...) %>%
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE)
+}
+```
+
+## Load the data {-}
+
+```{r load-data}
+samples <- readr::read_tsv(smk_inputs$samples)
+tx_isopedia <- readr::read_tsv(smk_inputs$transcripts)
+tx_groups <- readr::read_tsv(smk_inputs$groups)
+
+## Transcript attributes of the assembly: class code (gffcompare), category
+## (isomatch) and gene name
+gtf_tx <- rtracklayer::import(path.expand(smk_inputs$gtf), feature.type = "transcript") %>%
+  tibble::as_tibble() %>%
+  dplyr::select(trans_id = transcript_id, strand, dplyr::any_of(c("gene_name", "class_code", "ISOM_CATEGORY"))) %>%
+  dplyr::distinct(trans_id, .keep_all = TRUE)
+
+category_source <- dplyr::case_when(
+  "class_code" %in% colnames(gtf_tx) ~ "class_code",
+  "ISOM_CATEGORY" %in% colnames(gtf_tx) ~ "ISOM_CATEGORY",
+  .default = "none"
+)
+
+## Reference transcripts keep their GENCODE (ENST) id through the merge
+tx <- tx_isopedia %>%
+  dplyr::left_join(gtf_tx, by = "trans_id") %>%
+  dplyr::mutate(
+    origin = factor(dplyr::if_else(stringr::str_detect(trans_id, "^ENST"), "Reference", "Novel"), levels = names(origin_colors)),
+    category = switch(category_source,
+      class_code = classCodeLabel(class_code),
+      ISOM_CATEGORY = ISOM_CATEGORY,
+      as.character(origin)
+    ) %>% dplyr::coalesce("Unknown"),
+    status = factor(dplyr::case_when(
+      n_pos_fsm > 0 ~ "Full-splice match",
+      n_pos_est > 0 ~ "Partial reads only (EM)",
+      .default = "No evidence"
+    ), levels = names(status_colors)),
+    detected = n_pos_fsm > 0,
+    exon_class = cut(exon_count, c(0, 1, 3, 6, 10, Inf), labels = c("1", "2-3", "4-6", "7-10", "11+")),
+    length_class = cut(tx_length, c(0, 500, 1000, 2000, 3000, 5000, Inf),
+                       labels = c("<0.5", "0.5-1", "1-2", "2-3", "3-5", ">5"), right = FALSE)
+  )
+
+n_samples <- nrow(samples)
+n_unmatched <- sum(!tx_isopedia$trans_id %in% gtf_tx$trans_id)
+```
+
+`r fmt(nrow(tx))` transcripts were queried against `r fmt(n_samples)` index samples. Transcript categories come from the GTF attribute **`r category_source`**. `r if (n_unmatched > 0) paste0(fmt(n_unmatched), " Isopedia transcripts were not found in the assembly GTF.") else ""`
+
+# Index samples
+
+The index samples are grouped by the metadata column `r iso_settings$group_by` (when the column is missing, every sample is in the group `all`). Groups with fewer than `r min_group_samples` samples are only shown in the table.
+
+```{r index-samples-table}
+sample_groups <- samples %>%
+  dplyr::group_by(sample_group) %>%
+  dplyr::summarise(
+    n_samples = dplyr::n(),
+    median_reads = stats::median(total_evidence, na.rm = TRUE),
+    total_reads = sum(total_evidence, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(dplyr::desc(n_samples))
+
+sample_groups %>%
+  dplyr::mutate(dplyr::across(c(median_reads, total_reads), fmt)) %>%
+  DT::datatable(
+    rownames = FALSE, colnames = c("Sample group", "Samples", "Median reads per sample", "Total reads"),
+    caption = "Index samples per group. Reads = total isoform evidence per sample reported by Isopedia.",
+    options = list(pageLength = 10, scrollX = TRUE)
+  )
+```
+
+```{r index-samples-plot, fig.height = 6}
+sample_groups %>%
+  dplyr::filter(n_samples >= min_group_samples) %>%
+  dplyr::mutate(sample_group = forcats::fct_reorder(sample_group, n_samples)) %>%
+  ggplot(aes(x = n_samples, y = sample_group)) +
+  geom_col(fill = "#4E79A7", color = "black", linewidth = 0.2) +
+  geom_text(aes(label = n_samples), hjust = -0.2, size = 3) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Index samples", y = NULL, title = "Index samples per group",
+       subtitle = sprintf("Groups with at least %i samples", min_group_samples)) +
+  theme_endome()
+```
+
+# Detection of the assembled transcripts
+
+## By origin and category
+
+A transcript is **detected** when at least one sample has `r min_read` or more full-splice-match reads (Isopedia's `detected` column). Transcripts with only partial reads are shown separately: they may exist, but no read covers their whole intron chain.
+
+```{r detection-table}
+tx %>%
+  dplyr::group_by(origin, category) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    detected = mean(detected),
+    em_only = mean(status == "Partial reads only (EM)"),
+    median_pos = stats::median(n_pos_fsm[n_pos_fsm > 0]),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(origin, dplyr::desc(n)) %>%
+  dplyr::mutate(n = fmt(n), detected = pct(detected), em_only = pct(em_only)) %>%
+  styleKable(
+    caption = "Detection per origin and category. Median positive samples is computed over the detected transcripts.",
+    col.names = c("Origin", "Category", "Transcripts", "Detected", "Partial reads only", "Median positive samples")
+  )
+```
+
+```{r detection-plot, fig.height = 6.5}
+tx %>%
+  dplyr::count(origin, category, status) %>%
+  dplyr::group_by(origin, category) %>%
+  dplyr::mutate(total = sum(n), prop = n / total) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(label = sprintf("%s (n = %s)", category, fmt(total))) %>%
+  ggplot(aes(x = prop, y = forcats::fct_reorder(label, total), fill = status)) +
+  geom_col(color = "black", linewidth = 0.2) +
+  facet_grid(origin ~ ., scales = "free_y", space = "free_y") +
+  scale_fill_manual(values = status_colors) +
+  scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+  labs(x = "Transcripts", y = NULL, fill = NULL, title = "Isopedia evidence per category") +
+  theme_endome()
+```
+
+## Recurrence across samples
+
+Being seen in many samples is stronger evidence than a single read in a single sample. The figure shows the fraction of transcripts detected in at least *k* samples.
+
+```{r recurrence-plot}
+k_values <- c(1, 2, 3, 5, 10, 20, 50, 100, 200, 500)
+k_values <- k_values[k_values <= n_samples]
+
+recurrence <- tidyr::expand_grid(origin = levels(tx$origin), k = k_values) %>%
+  dplyr::mutate(prop = purrr::map2_dbl(origin, k, \(o, kk) mean(tx$n_pos_fsm[tx$origin == o] >= kk))) %>%
+  dplyr::filter(!is.nan(prop))
+
+recurrence %>%
+  ggplot(aes(x = k, y = prop, color = origin)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  scale_x_log10(breaks = k_values) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_color_manual(values = origin_colors) +
+  labs(x = "Positive samples (at least)", y = "Transcripts", color = NULL,
+       title = "Detection recurrence", subtitle = sprintf("Out of %s index samples", fmt(n_samples))) +
+  theme_endome()
+```
+
+## Transcript structure
+
+Mono-exonic transcripts are matched by their ends (± `mono_exon_wobble` bp) instead of their intron chain, and long transcripts are less often covered by a single full-length read. Both affect detection independently of whether the transcript is real.
+
+```{r structure-plot, fig.height = 4.5}
+structure_df <- dplyr::bind_rows(
+  tx %>% dplyr::group_by(origin, class = exon_class) %>%
+    dplyr::summarise(n = dplyr::n(), prop = mean(detected), .groups = "drop") %>%
+    dplyr::mutate(feature = "Exons"),
+  tx %>% dplyr::group_by(origin, class = length_class) %>%
+    dplyr::summarise(n = dplyr::n(), prop = mean(detected), .groups = "drop") %>%
+    dplyr::mutate(feature = "Transcript length (kb)")
+) %>%
+  dplyr::filter(!is.na(class))
+
+structure_df %>%
+  ggplot(aes(x = class, y = prop, color = origin, group = origin)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(aes(size = n)) +
+  facet_wrap(~ feature, scales = "free_x") +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_color_manual(values = origin_colors) +
+  scale_size_continuous(range = c(1, 4), labels = fmt) +
+  labs(x = NULL, y = "Detected", color = NULL, size = "Transcripts", title = "Detection by transcript structure") +
+  theme_endome()
+```
+
+# End support
+
+For the detected transcripts with at least `r min_fsm_ends` full-splice-match reads, the fraction of those reads whose 5' end lies within `r iso_settings$tss_wob` bp of the annotated TSS (and 3' end within `r iso_settings$tes_wob` bp of the TES). Low TSS support may mean the annotated start is wrong, or simply that the libraries are 5'-truncated. Compare transcripts with each other rather than against an absolute threshold.
+
+```{r ends-plot}
+ends_df <- tx %>%
+  dplyr::filter(fsm >= min_fsm_ends) %>%
+  dplyr::select(trans_id, origin, length_class, frac_tss, frac_tes) %>%
+  tidyr::pivot_longer(c(frac_tss, frac_tes), names_to = "end", values_to = "frac") %>%
+  dplyr::mutate(end = factor(end, levels = c("frac_tss", "frac_tes"), labels = c("5' end (TSS)", "3' end (TES)")))
+
+ends_df %>%
+  ggplot(aes(x = frac, fill = origin)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 0.05, boundary = 0, color = "black",
+                 linewidth = 0.1, alpha = 0.6, position = "identity") +
+  facet_wrap(~ end) +
+  scale_fill_manual(values = origin_colors) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Full-splice-match reads supporting the annotated end", y = "Density", fill = NULL,
+       title = "End support of the detected transcripts",
+       subtitle = sprintf("%s transcripts with at least %i FSM reads", fmt(dplyr::n_distinct(ends_df$trans_id)), min_fsm_ends)) +
+  theme_endome()
+```
+
+```{r ends-length-plot, fig.height = 4.5}
+ends_df %>%
+  dplyr::filter(!is.na(length_class)) %>%
+  dplyr::group_by(origin, end, length_class) %>%
+  dplyr::summarise(median_frac = stats::median(frac, na.rm = TRUE), n = dplyr::n(), .groups = "drop") %>%
+  ggplot(aes(x = length_class, y = median_frac, color = origin, group = origin)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(aes(size = n)) +
+  facet_wrap(~ end) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_color_manual(values = origin_colors) +
+  scale_size_continuous(range = c(1, 4), labels = fmt) +
+  labs(x = "Transcript length (kb)", y = "Median end support", color = NULL, size = "Transcripts",
+       title = "End support by transcript length",
+       subtitle = "A drop of the 5' support with length points to 5'-truncated reads rather than wrong TSSs") +
+  theme_endome()
+```
+
+# Sample groups
+
+## Detection per group
+
+Fraction of the assembled transcripts detected (at least one positive sample) within each sample group. Groups with more samples detect more transcripts, so the number of samples is shown next to each group.
+
+```{r groups-detection-plot, fig.height = 6.5}
+big_groups <- sample_groups %>% dplyr::filter(n_samples >= min_group_samples)
+origin_totals <- dplyr::count(tx, origin, name = "n_origin")
+
+groups_detection <- tx_groups %>%
+  dplyr::filter(n_pos_fsm > 0, sample_group %in% big_groups$sample_group) %>%
+  dplyr::inner_join(dplyr::select(tx, trans_id, origin), by = "trans_id") %>%
+  dplyr::count(sample_group, origin) %>%
+  dplyr::left_join(origin_totals, by = "origin") %>%
+  dplyr::left_join(big_groups, by = "sample_group") %>%
+  dplyr::mutate(prop = n / n_origin, label = sprintf("%s (%i)", sample_group, n_samples))
+
+groups_detection %>%
+  ggplot(aes(x = prop, y = forcats::fct_reorder(label, n_samples), color = origin)) +
+  geom_point(size = 2.5) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_color_manual(values = origin_colors) +
+  labs(x = "Transcripts detected in the group", y = "Sample group (samples)", color = NULL,
+       title = "Detection per sample group") +
+  theme_endome()
+```
+
+## Group-specific novel transcripts
+
+Novel transcripts whose full-splice-match evidence comes from a single sample group. These are candidates for tissue-specific isoforms, but also for artifacts shared by a single project.
+
+```{r groups-specific-table}
+tx_groups %>%
+  dplyr::filter(n_pos_fsm > 0) %>%
+  dplyr::inner_join(dplyr::select(tx, trans_id, origin), by = "trans_id") %>%
+  dplyr::filter(origin == "Novel") %>%
+  dplyr::group_by(trans_id) %>%
+  dplyr::filter(dplyr::n() == 1) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(sample_group) %>%
+  dplyr::summarise(
+    n_specific = dplyr::n(),
+    n_specific_2plus = sum(n_pos_fsm >= 2),
+    .groups = "drop"
+  ) %>%
+  dplyr::left_join(sample_groups %>% dplyr::select(sample_group, n_samples), by = "sample_group") %>%
+  dplyr::arrange(dplyr::desc(n_specific)) %>%
+  dplyr::relocate(n_samples, .after = sample_group) %>%
+  DT::datatable(
+    rownames = FALSE,
+    colnames = c("Sample group", "Samples", "Novel transcripts only seen here", "... in 2 or more samples"),
+    caption = "Novel transcripts detected in a single sample group.",
+    options = list(pageLength = 10, scrollX = TRUE)
+  )
+```
+
+# Within-gene abundance
+
+The Bin Information Content currently weights every bin member equally. Isopedia's estimated reads (full-splice-match + EM) give a population-level abundance for each transcript. As a preview of how unequal those weights would be, the figure shows, for every assembled gene (`gene_id`) with at least two transcripts with reads, the share of the gene's reads taken by its most abundant transcript, and the effective number of transcripts ($1 / \sum p_i^2$).
+
+```{r gene-dominance-plot, fig.height = 4.5}
+gene_dominance <- tx %>%
+  dplyr::mutate(est = fsm + em) %>%
+  dplyr::filter(est > 0) %>%
+  dplyr::group_by(gene_id) %>%
+  dplyr::filter(dplyr::n() >= 2) %>%
+  dplyr::mutate(p = est / sum(est)) %>%
+  dplyr::summarise(
+    n_tx = dplyr::n(),
+    top_share = max(p),
+    effective_ratio = (1 / sum(p^2)) / n_tx,
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(n_class = cut(n_tx, c(1, 2, 3, 5, 10, Inf), labels = c("2", "3", "4-5", "6-10", "11+")))
+
+gene_dominance %>%
+  dplyr::select(gene_id, n_class, `Share of the top transcript` = top_share,
+                `Effective / observed transcripts` = effective_ratio) %>%
+  tidyr::pivot_longer(-c(gene_id, n_class), names_to = "metric", values_to = "value") %>%
+  ggplot(aes(x = n_class, y = value)) +
+  geom_boxplot(fill = "#4E79A7", alpha = 0.6, outlier.size = 0.3) +
+  facet_wrap(~ metric, scales = "free_y") +
+  labs(x = "Transcripts with reads in the gene", y = NULL,
+       title = "How unequal are the transcripts of a gene?",
+       subtitle = sprintf("%s genes. Effective / observed = 1 when all transcripts have the same reads.", fmt(nrow(gene_dominance)))) +
+  theme_endome()
+```
+
+A top share close to 1 (and a low effective number) means one transcript dominates the gene, so uniform weights would give too much weight to minor transcripts.
+
+# Most supported novel transcripts
+
+The `r n_top_table` novel transcripts detected in the most samples. *Top groups* lists the three sample groups with the most positive samples.
+
+```{r top-novel-table}
+top_groups <- tx_groups %>%
+  dplyr::filter(n_pos_fsm > 0) %>%
+  dplyr::group_by(trans_id) %>%
+  dplyr::slice_max(n_pos_fsm, n = 3, with_ties = FALSE) %>%
+  dplyr::summarise(top_groups = paste(sprintf("%s (%i)", sample_group, n_pos_fsm), collapse = ", "), .groups = "drop")
+
+tx %>%
+  dplyr::filter(origin == "Novel", detected) %>%
+  dplyr::arrange(dplyr::desc(n_pos_fsm), dplyr::desc(fsm)) %>%
+  dplyr::slice_head(n = n_top_table) %>%
+  dplyr::left_join(top_groups, by = "trans_id") %>%
+  dplyr::transmute(
+    trans_id, gene = dplyr::coalesce(gene_name, gene_id), category,
+    locus = sprintf("%s:%s-%s", chrom, fmt(start), fmt(end)),
+    exon_count, tx_length, n_pos_fsm, n_groups_pos_fsm, fsm = round(fsm),
+    frac_tss = round(frac_tss, 2), frac_tes = round(frac_tes, 2),
+    cpm_est_mean = signif(cpm_est_mean, 3), top_groups
+  ) %>%
+  DT::datatable(
+    rownames = FALSE, filter = "top",
+    colnames = c("Transcript", "Gene", "Category", "Locus", "Exons", "Length", "Positive samples",
+                 "Positive groups", "FSM reads", "TSS support", "TES support", "Mean CPM (est.)", "Top groups"),
+    caption = "Novel transcripts with the most Isopedia support.",
+    options = list(pageLength = 10, scrollX = TRUE)
+  )
+```
+
+# Methods
+
+- **Query**: the step 02 assembly (`transcriptome_assembly/*.annotated.clean.gtf`) is sorted with `gffread` and queried with `isopedia isoform` (`r smk_params$isopedia_version`). Every transcript is queried at once, so the EM step shares partial reads among all the assembled transcripts, not only the ones kept downstream.
+- **Summary** (`S02c-Isopedia_Summary.R`): the per-sample cells are aggregated per transcript and per sample group. Positive samples = samples with at least `min_read` full-splice-match reads; *estimated* positive samples also count EM reads. Mean CPM uses Isopedia's `CPM_EST` (full-splice-match + EM reads per million reads of the sample), averaged over all the samples, including those without evidence.
+- **Origin**: transcripts that keep a GENCODE id (`ENST`) are *Reference*; the rest are *Novel*.

@@ -1,5 +1,5 @@
 ################################################################################
-## 05 - ENDome truncation
+## ENDome truncation
 ################################################################################
 
 ## Variables
@@ -41,10 +41,9 @@ rule txendcutr_truncation:
     params:
         mergeDist = txendcutr_settings["merge_distance"],
         genome = txendcutr_settings["genome"],
-        script = lambda wc: "S05a-txendcutr.R" if wc.width.isdigit() else "T05a-txendcutr_UTR.R"
     conda: "../envs/r.yaml"
     threads: 12
-    script: "../scripts/{params.script}" # Modified `txendcutr.R` script to include my version of the package
+    script: "../scripts/S05a-txendcutr.R"
 
 rule import_truncated_gtf:
     message: "--- Importing the pre-truncated GTF of {wildcards.prefix} ---"
@@ -158,23 +157,6 @@ rule endome_compute_scores:
     conda: "../envs/r.yaml"
     threads: 4
     script: "../scripts/S05d-Compute_Scores.R"
-
-rule endome_report:
-    message: """--- Rendering the ENDome characterization report ---"""
-    input:
-        duckdb = rules.endome_build_db.output.duckdb,
-        done = rules.endome_compute_scores.output.done
-    output:
-        html = step05.path("characterization/reports/{prefix}.{orf_filter}.w{width}.{txEnd}.html")
-    log: step05.logs("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.report.log")
-    params:
-        merge_distance = txendcutr_settings["merge_distance"],
-        protein_metric = scoring_settings["protein_metric"],
-        length_scaling = scoring_settings["length_scaling"],
-        member_weights = scoring_settings["member_weights"],
-        component_weights = scoring_settings["component_weights"]
-    conda: "../envs/r.yaml"
-    script: "../scripts/R05a-ENDome_Report.Rmd"
 
 
 ## Pseudoalignment RUles
