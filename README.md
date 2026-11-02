@@ -15,9 +15,7 @@ Both the truncation strategy and the UTR quantification are based on the work of
 
 > Fansler M.M., Mitschka S. & Mayr C. Quantifying 3′UTR length from scRNA-seq data reveals changes independent of gene expression. *Nature Communications* 15:4050 (2024). https://doi.org/10.1038/s41467-024-48254-9
 
-> **Status:** the pipeline is in active development.
-
-The full documentation is in the **[ENDome wiki](https://github.com/guillermo1996/Endome_generation/wiki)**: how to install, configure and run the pipeline, and how each step works.
+The full documentation is in the **[ENDome wiki](https://github.com/guillermo1996/Endome_generation/wiki)**. Pipeline is in active development. 
 
 ## Overview
 
