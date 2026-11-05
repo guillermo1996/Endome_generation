@@ -49,7 +49,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/Wood.control"
+  rs <- "results/Wood"
   prefix <- "Wood.control.st_ref"
   orf_filter <- "ref_pc"
   dir.create(file.path(rs, "temp"), showWarnings = FALSE)

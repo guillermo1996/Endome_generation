@@ -103,7 +103,7 @@ benchmark_path: ".benchmarks"
 ## Long-read samples used to generate the ENDome (steps 01-05)
 ### Tab-separated file with one row per sample and the columns:
 ###   dataset    dataset name, as used in "input_dataset"
-###   group      sample group within the dataset: control | case
+###   group      group sample group within the dataset (e.g. control | case); in pipeline_runs, "all" = every sample
 ###   sample_id  unique sample name within the dataset
 ###   file_type  fastq = raw reads, the sample starts at 01 Alignment
 ###              bam   = aligned and coordinate-sorted reads, the sample skips to 02 Assembly

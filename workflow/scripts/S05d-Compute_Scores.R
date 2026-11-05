@@ -50,7 +50,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/Wood.control"
+  rs <- "results/Wood"
   prefix <- "Wood.control.st_ref"
   orf_filter <- "pc_novel"
   width <- "500"

@@ -5,23 +5,40 @@
 ## Variables
 ################################################################################
 ### Axes of the report targets
-endome_axes_info = table_axes("dataset", "group", "merge_method", "orf_filter", "width", "txEnd", where = "has_orfs")
 endome_axes_pseudobulk = table_axes("dataset", "group", "endome_name", "pseudobulk_method")
 endome_axes_dtu = table_axes("dataset", "group", "endome_name", "pseudobulk_method", "saturn_method")
+
+### Transcriptomes (prefix) with ORFs: one information content report each
+endome_axes_info = table_axes("dataset", "group", "prefix", where = "has_orfs")
 
 ### Transcriptomes with a step 02 assembly (pre-truncated GTFs have none)
 endome_axes_isopedia = table_axes("dataset", "group", "merge_method", where = "has_orfs")
 
-## ENDome characterization report (step 05)
+### Bin information scoring settings.
+scoring_settings = config.get("scoring_settings", {}).get("default")
+
+### Input function: `template` filled in for every ENDome (orf_filter x width x txEnd) of the prefix wildcard
+def prefix_endomes(template):
+    def _input(wildcards):
+        rows = endome_table.loc[endome_table["has_orfs"] & (endome_table["prefix"] == wildcards.prefix), ["orf_filter", "width", "txEnd"]].drop_duplicates()
+        if rows.empty:
+            raise ValueError(f"'{wildcards.prefix}' has no ENDome with ORFs in pipeline_runs (pre-truncated GTFs have no reports)")
+        n = len(rows)
+        return expand(template, zip, dataset = [wildcards.dataset] * n,
+                      prefix = [wildcards.prefix] * n, **rows.to_dict("list"))
+    return _input
+
+## Information content report (step 05): one per transcriptome, comparing its ENDomes
 ################################################################################
-rule endome_report:
-    message: """--- Rendering the ENDome characterization report ---"""
+rule endome_info_report:
+    message: "--- Rendering the information content report - {wildcards.prefix} ---"
     input:
-        duckdb = rules.endome_build_db.output.duckdb,
-        done = rules.endome_compute_scores.output.done
+        duckdb = prefix_endomes(rules.endome_build_db.output.duckdb),
+        done = prefix_endomes(rules.endome_compute_scores.output.done)
     output:
-        html = step05.path("characterization/reports/{prefix}.{orf_filter}.w{width}.{txEnd}.html")
-    log: step05.logs("characterization/{prefix}.{orf_filter}.w{width}.{txEnd}.report.log")
+        html = step05.path("reports/{prefix}.info_report.html")
+    log: step05.logs("reports/{prefix}.info_report.log")
+    benchmark: step05.benchmark("reports/{prefix}.info_report.tsv")
     params:
         merge_distance = txendcutr_settings["merge_distance"],
         protein_metric = scoring_settings["protein_metric"],
@@ -29,7 +46,7 @@ rule endome_report:
         member_weights = scoring_settings["member_weights"],
         component_weights = scoring_settings["component_weights"]
     conda: "../envs/r.yaml"
-    script: "../reports/R05a-ENDome_Report.Rmd"
+    script: "../reports/R05a-Information_Content_Report.Rmd"
 
 ## UTR usage reports (step 07)
 ################################################################################
@@ -105,7 +122,7 @@ rule isopedia:
 
 rule info_report:
     input:
-        html = expand(step05.path("characterization/reports/" + endome_name + ".html"), zip, **endome_axes_info)
+        html = expand(rules.endome_info_report.output.html, zip, **endome_axes_info)
 
 rule pseudobulk:
     input:

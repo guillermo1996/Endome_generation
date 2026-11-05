@@ -23,7 +23,7 @@ ref_annotation = config["ref_annotation"]
 ## Define the Output paths
 ################################################################################
 main_output_path = config["main_output_path"]
-project_output_path = "{dataset}.{group}"
+project_output_path = "{dataset}"
 
 results_path = Path(main_output_path) / project_output_path
 log_path = config["log_path"]
@@ -145,39 +145,42 @@ def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) ->
 
     ### Every dataset x group that starts from reads has samples
     for dataset, group in read_inputs.itertuples(index = False):
-        group_list = ["control", "case"] if group == "control_case" else [group]
-        if not ((selected["dataset"] == dataset) & selected["group"].isin(group_list)).any():
-            raise ValueError(f"No samples for {dataset}.{group} in {sample_sheet}. "
+        groups = sorted(selected.loc[selected["dataset"] == dataset, "group"].unique())
+        if "all" in groups:
+            raise ValueError(f"`all` is reserved for every sample of a dataset: rename that group of {dataset} in {sample_sheet}")
+        if not groups or (group != "all" and group not in groups):
+            raise ValueError(f"No samples for {dataset}.{group} in {sample_sheet} (groups: {groups + ['all'] if groups else 'none'}). "
                              f"Check `group` in pipeline_runs, or add a `pre-assembled_gtf` if it is an external transcriptome")
     return samples
 
 ################################################################################
 ## Helper Functions - For Analysis
 ################################################################################
-def generate_input_samples_df(dataset: str, group: str) -> pd.DataFrame:
+def generate_input_samples_df(dataset: str, group: str = "all") -> pd.DataFrame:
     """Samples of one dataset x group combination from the sample sheet.
-    
+
     Args:
-        dataset (str): Dataset name, as in the ``dataset`` columns.
-        group (str): Sample group
+        dataset (str): Dataset name, as in the ``dataset`` column.
+        group (str): Sample group, or "all" for every sample of the dataset. Defaults to "all".
 
     Returns:
         pd.DataFrame: One row per sample with columns ``sample_id``, ``group``, ``file_type`` and ``path``.
     """
-    group_list = ["control", "case"] if group == "control_case" else [group]
-    selected = endome_samples[(endome_samples["dataset"] == dataset) & (endome_samples["group"].isin(group_list))]
+    selected = endome_samples[endome_samples["dataset"] == dataset]
+    if group != "all":
+        selected = selected[selected["group"] == group]
     return selected[["sample_id", "group", "file_type", "path"]].reset_index(drop = True)
 
 def get_input_sample(wildcards) -> pd.Series:
-    samples_df = generate_input_samples_df(wildcards.dataset, wildcards.group)
+    samples_df = generate_input_samples_df(wildcards.dataset)
     return samples_df[samples_df["sample_id"] == wildcards.sample].iloc[0]
 
 def generate_param_files():
     """``parameters.yaml`` of every registered step, for the datasets that run it"""
     targets = []
     for step in registered_steps:
-        rows = endome_table.loc[endome_table["first_step"] <= int(step.name[:2]), ["dataset", "group"]].drop_duplicates()
-        targets += expand(step.path("parameters.yaml"), zip, dataset = rows["dataset"].tolist(), group = rows["group"].tolist())
+        datasets = endome_table.loc[endome_table["first_step"] <= int(step.name[:2]), "dataset"].unique().tolist()
+        targets += expand(step.path("parameters.yaml"), dataset = datasets)
     return targets
 
 ################################################################################

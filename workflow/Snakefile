@@ -72,7 +72,6 @@ pseudobulk = expand(rules.pseudobulk_scUTRquant.output.pseudobulk, zip, **endome
 saturn = expand(rules.satuRn_DTU.output.results, zip, **endome_axes_saturn)
 
 # ── Reports ───────────────────────────────────────────────────────────
-
 rule all:
     input:
         parameters = generate_param_files(),
@@ -85,6 +84,10 @@ rule all:
 
 # # ── Additional outputs ──────────────────────────────────────────────────
 include: "rules/Reports.smk"
+
+rule endomes:
+    input:
+        truncated_gtf = truncated_gtf
 
 # gencode_axes = dict(
 #     dataset="gencode", group="none",

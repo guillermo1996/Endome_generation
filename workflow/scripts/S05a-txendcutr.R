@@ -52,7 +52,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/Wood.control"
+  rs <- "results/Wood"
   prefix <- "Wood.control.st_ref"
   orf_filter <- "pc_novel"
   width <- "500"
@@ -149,13 +149,14 @@ utrTxome <- function(txdb, txEnd, overlapFile){
   if (nrow(hits) > 0) grl <- grl[-unique(hits$queryHits)]
   message(sprintf("  Removed %s identical UTRs", format(length(unique(hits$queryHits)), big.mark = ",")))
 
-  ### One exon_id per exon line, as in the full-length branch
+  ### Label each exon with its transcript before sorting, then one exon_id per exon line
   exons <- unlist(grl, use.names = FALSE)
-  exons <- sort(exons) 
   mcols(exons) <- S4Vectors::DataFrame(
     type = rep("exon", length(exons)),
-    transcript_id = rep(names(grl), lengths(grl)),
-    exon_id = paste0("exon_", seq_along(exons)))
+    transcript_id = rep(names(grl), lengths(grl)))
+  exons <- sort(exons)
+  exons$exon_id <- paste0("exon_", seq_along(exons))
+
   tx_ranges <- unlist(range(grl), use.names = FALSE)
   mcols(tx_ranges) <- S4Vectors::DataFrame(
     type = rep("transcript", length(grl)),
@@ -167,7 +168,11 @@ utrTxome <- function(txdb, txEnd, overlapFile){
   df_metadata <- data.frame(
     name = c("Truncated by", "Maximum Transcript Length", "Truncation End"),
     value = c("txendcutr", "UTR", c("3p" = "3prime", "5p" = "5prime")[[txEnd]]))
-  suppressWarnings(txdbmaker::makeTxDbFromGRanges(gr, taxonomyId = taxonomyId(txdb), metadata = df_metadata))
+  
+  txdb_utr <- suppressWarnings(txdbmaker::makeTxDbFromGRanges(gr, taxonomyId = taxonomyId(txdb), metadata = df_metadata))
+  n_out <- length(GenomicFeatures::transcripts(txdb_utr))
+  if(n_out != length(grl)) stop(sprintf("makeTxDbFromGRanges kept %s of %s UTRs", n_out, length(grl)), call. = FALSE)
+  txdb_utr
 }
 
 ############################################################################## #

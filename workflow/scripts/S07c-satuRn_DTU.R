@@ -55,7 +55,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/Wood.control"
+  rs <- "results/Wood"
   endome_name <- "Wood.control.st_ref.pc_novel.w500.3p"
   pseudobulk_method <- "default"
   saturn_method <- "default"

@@ -50,7 +50,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/gencode_3UTR.none"
+  rs <- "results/gencode_3UTR"
   prefix <- "gencode_3UTR.none.ext"
   orf_filter <- "ext"
   width <- "UTR"

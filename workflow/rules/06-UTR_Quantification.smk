@@ -61,10 +61,9 @@ rule generate_endome_target:
     output:
         targets = step06.path("Targets/{endome_name}.ENDome_targets.yml")
     run:
-        # scUTRquant resolves "path" from its working directory (the step06
-        # folder) and the file paths from "path" (the step05 folder)
-        base = os.path.abspath(str(step05.path()).format(dataset=wildcards.dataset, group=wildcards.group))
-        workdir = os.path.abspath(str(step06.path()).format(dataset=wildcards.dataset, group=wildcards.group))
+        # scUTRquant resolves "path" from its working directory (the step06 folder) and the file paths from "path" (the step05 folder)
+        base = os.path.abspath(str(step05.path()).format(dataset=wildcards.dataset))
+        workdir = os.path.abspath(str(step06.path()).format(dataset=wildcards.dataset))
         entry = {
             wildcards.endome_name: {
                 "path": os.path.relpath(base, workdir) + "/",
@@ -141,7 +140,7 @@ rule run_scUTRquant:
     benchmark: step06.benchmark("scUTRquant/{endome_name}.run_scUTRquant.tsv")
     threads: 36
     params:
-        workdir = lambda w: str(step06.path()).format(dataset=w.dataset, group=w.group),
+        workdir = lambda w: str(step06.path()).format(dataset=w.dataset),
         configfile = lambda w, input: os.path.abspath(input.config_file),
         conda_prefix = os.path.abspath(".snakemake/conda"),
         # kallisto bus spends most of its time loading the index (single-threaded),
@@ -167,7 +166,7 @@ rule collect_run_info:
     output:
         tsv = step06.path("pseudoalignment/{endome_name}.run_info.tsv")
     params:
-        kallisto_dir = lambda w: str(step06.path("data/kallisto/{endome_name}")).format(dataset=w.dataset, group=w.group, endome_name=w.endome_name),
+        kallisto_dir = lambda w: str(step06.path("data/kallisto/{endome_name}")).format(dataset=w.dataset, endome_name=w.endome_name),
     run:
         import json, csv
         fields = ["sample_id", "n_processed", "n_pseudoaligned", "n_unique", "p_pseudoaligned", "p_unique", "kallisto_version"]

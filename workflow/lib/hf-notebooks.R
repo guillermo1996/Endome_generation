@@ -402,15 +402,19 @@ if (is.null(.hf$files))    .hf$files    <- character(0)
   c(.hf$funs[[hit]]$code, "")
 }
 
-.hf_emit <- function(code) {
-  while (length(code) && !nzchar(code[length(code)])) code <- code[-length(code)]
-  if (!length(code)) return(invisible(NULL))
+.hf_emit <- function(code){
+  while(length(code) && !nzchar(code[length(code)])) code <- code[-length(code)]
+  if(!length(code)) return(invisible(NULL))
 
   # The fence must outrun any backticks in the code itself
   ticks <- nchar(unlist(regmatches(code, gregexpr("`+", code)), use.names = FALSE))
   fence <- strrep("`", max(3L, ticks + 1L))
 
-  .hf$.n <- (if (is.null(.hf$.n)) 0L else .hf$.n) + 1L
+  # knit_child() moves the working directory to the folder of the Rmd, so put it back on exit
+  owd <- getwd()
+  on.exit(setwd(owd), add = TRUE)
+
+  .hf$.n <- (if(is.null(.hf$.n)) 0L else .hf$.n) + 1L
   cat(knitr::knit_child(text = sprintf("%s{r hf-src-%d, eval = FALSE}\n%s\n%s",
                                        fence, .hf$.n, paste(code, collapse = "\n"), fence),
                         quiet = TRUE), sep = "\n")

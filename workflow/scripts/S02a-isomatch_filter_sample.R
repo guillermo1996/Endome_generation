@@ -47,7 +47,7 @@ if (interactive()) {
       scriptdir = 'character')
   )
 
-  rs <- "results/Wood.control"
+  rs <- "results/Wood"
   merge_method <- "iso_ref"
   sample <- "LIB01_PDC029_F_CTX"
   dir.create(file.path(rs, "temp"), showWarnings = FALSE)
