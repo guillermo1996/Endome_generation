@@ -66,7 +66,6 @@ endome_axes_pseudobulk = table_axes("dataset", "group", "endome_name", "pseudobu
 endome_axes_saturn = table_axes("dataset", "group", "endome_name", "pseudobulk_method", "saturn_method")
 
 truncated_gtf = expand(step05.path("txendcutr/" + endome_name + ".txendcutr.gtf"), zip, **endome_axes)
-endome_targets = expand(step06.path("Configs/{endome_name}.scUTRquant_config.yaml"), zip, **endome_axes_sce)
 scUTRquant_sce = expand(rules.run_scUTRquant.output.sce, zip, **endome_axes_sce)
 pseudobulk = expand(rules.pseudobulk_scUTRquant.output.pseudobulk, zip, **endome_axes_pseudobulk)
 saturn = expand(rules.satuRn_DTU.output.results, zip, **endome_axes_saturn)
@@ -88,6 +87,11 @@ include: "rules/Reports.smk"
 rule endomes:
     input:
         truncated_gtf = truncated_gtf
+
+rule utr_quantification:
+    input:
+        rules.endomes.input,
+        scUTRquant_sce = scUTRquant_sce
 
 # gencode_axes = dict(
 #     dataset="gencode", group="none",

@@ -107,12 +107,12 @@ wc <- snakemake@wildcards
 ### Width can be any of the following: a number (last/first nt kept), "full"
 ### (whole transcripts) or the 3'/5' UTR, binned by the merge distance (UTR) or
 ### exactly (UTR_exact)
-truncation_mode <- if (wc$width == "full") "full" else if (wc$width %in% c("UTR", "UTR_exact")) "utr" else "window"
+truncation_mode <- if (wc$width %in% c("full", "full_exact")) "full" else if (wc$width %in% c("UTR", "UTR_exact")) "utr" else "window"
 maxTxLength <- if (truncation_mode == "window") as.integer(wc$width) else NA_integer_
 if (truncation_mode == "window" && is.na(maxTxLength)) stop("Unknown width: ", wc$width, call. = FALSE)
 
 txEnd <- wc$txEnd
-merge_ends <- wc$width != "UTR_exact"
+merge_ends <- !wc$width %in% c("UTR_exact", "full_exact")
 minDistance <- as.integer(params$mergeDist)
 
 bsg <- getBSgenome(params$genome)
@@ -190,7 +190,7 @@ if(truncation_mode == "full"){
   ### Same metadata as txendcutr::truncateTxome, read by exportMergeTable
   df_metadata <- data.frame(
     name = c("Truncated by", "Maximum Transcript Length", "Truncation End"),
-    value = c("none", "full", ifelse(txEnd == "5p", "5prime", "3prime"))
+    value = c("none", wc$width, ifelse(txEnd == "5p", "5prime", "3prime"))
   )
   txdb_result <- suppressWarnings(makeTxDbFromGRanges(gtf, metadata = df_metadata))
 

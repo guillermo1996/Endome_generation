@@ -10,6 +10,59 @@
 ##########################################################
 
 ############################
+# 01. WHAT TO RUN
+############################
+
+pipeline_runs:
+  - dataset: "Wood"
+    group: "control"
+    pre-assembled_gtf: "/config/ENDome/Inputs/Transcriptomes/Wood/Wood.control.st_ref.annotated.clean.gtf"
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "3p"
+    trunc_width: 500
+  - dataset: "Wood"
+    group: "control"
+    pre-assembled_gtf: "/config/ENDome/Inputs/Transcriptomes/Wood/Wood.control.st_ref.annotated.clean.gtf"
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "5p"
+    trunc_width: [500, 300]
+  - dataset: "Ebbert"
+    group: "control"
+    pre-assembled_gtf: "/config/ENDome/Inputs/Transcriptomes/Ebbert/Ebbert.control.st_ref.annotated.clean.gtf"
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "3p"
+    trunc_width: 500
+  - dataset: "Ebbert"
+    group: "control"
+    pre-assembled_gtf: "/config/ENDome/Inputs/Transcriptomes/Ebbert/Ebbert.control.st_ref.annotated.clean.gtf"
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "5p"
+    trunc_width: [500, 300]
+  - dataset: "gencode_ref"
+    group: "none"
+    pre-assembled_gtf: "/config/ENDome/Resources/Gencode/gencode.v48.annotation.gtf"
+    skip_pigeon_filter: True
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "3p"
+    trunc_width: ["full", "full_exact"] # Full transcripts, both with and without binning
+
+sc_dataset:
+  # Step 06: scUTRquant sample sheet and config template
+  sample_sheet: "data/Scherzer_snRNAseq/sample_sheet.csv"
+  scUTRquant_config_template: "config/scUTRquant_config_scherzer.yaml"
+
+  # Step 07: cell annotation and sample tables (TSV, built by T07a for Hardy)
+  cell_annotations: "data/Hardy_snRNAseq/prepared/Hardy.cell_annotations.tsv.gz"
+  sample_table: "data/Hardy_snRNAseq/prepared/Hardy.sample_table.tsv"
+  exclude_samples: ["gosot_ACG", "gosot_IPL"] # sample_id values to remove
+
+  # Step 07: what to compare
+  stratify_by: "region" # sample_table column: one model per value (null = no strata)
+  celltypes: null # null = every cell type available
+  contrasts: ["PDD-Control", "PD-Control", "PDD-PD"] # "<group1>-<group2>", values of the "group" column
+  covariates: ["sex", "rin_bxp", "deletion_length", "insertion_length", "uniquely_mapped_percent"]
+
+############################
 # 03. PATHS
 ############################
 

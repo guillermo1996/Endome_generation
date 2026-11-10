@@ -90,7 +90,7 @@ rule generate_scutrquant_config:
         config_file = step06.path("Configs/{endome_name}.scUTRquant_config.yaml")
     run:
         # Paths relative to scUTRquant's working directory (the step06 folder)
-        base = os.path.abspath(str(step06.path()).format(dataset=wildcards.dataset, group=wildcards.group))
+        base = os.path.abspath(str(step06.path()).format(dataset=wildcards.dataset))
         cfg = load_configfile(input.template)
         cfg["target"] = wildcards.endome_name
         cfg["targets_config"] = os.path.relpath(input.targets, base)
@@ -105,26 +105,34 @@ rule generate_scutrquant_config:
 rule prepare_scUTRquant_envs:
     message: "--- Creating scUTRquant conda environments ---"
     input:
-        # Any ENDome config works: the envs are the same for every target
-        config_file = lambda w: ancient(endome_targets[0]),
-        snakefile = rules.download_scUTRquant.output.snakefile
+        snakefile = ancient(rules.download_scUTRquant.output.snakefile)
     output:
         flag = touch(f".snakemake/conda/scUTRquant-{scUTRquant_version}.envs.done")
     log: f".snakemake/conda/scUTRquant-{scUTRquant_version}.envs.log"
     threads: 1
     params:
-        workdir = lambda w, input: os.path.dirname(os.path.dirname(os.path.abspath(input.config_file))),
-        configfile = lambda w, input: os.path.abspath(input.config_file),
+        scUTRquant_dir = rules.download_scUTRquant.output.scUTRquant_dir,
+        setup_dir = os.path.abspath(f".snakemake/conda/scUTRquant-{scUTRquant_version}.env_setup"),
         conda_prefix = os.path.abspath(".snakemake/conda"),
     shell:
         """
+        d={params.setup_dir}
+        rm -rf $d && mkdir -p $d
+        touch $d/t.gtf $d/t.kdx $d/t.merge.tsv $d/R1.fastq.gz $d/R2.fastq.gz $d/bx.txt
+        printf 'env_setup:\\n  path: "%s/"\\n  genome: hg38\\n  gtf: t.gtf\\n  kdx: t.kdx\\n  merge_tsv: t.merge.tsv\\n  tx_annots: null\\n  tx_annots_csv: null\\n  gene_annots: null\\n  gene_annots_csv: null\\n' $d > $d/targets.yaml
+        printf 'sample_id,file_type,files\\ns1,fastq,%s/R1.fastq.gz;%s/R2.fastq.gz\\n' $d $d > $d/samples.csv
+
         snakemake -s {input.snakefile} \
-            --configfile {params.configfile} \
-            --directory {params.workdir} \
+            --configfile {params.scUTRquant_dir}/config.yaml \
+            --config target=env_setup targets_config=$d/targets.yaml sample_file=$d/samples.csv \
+                     bx_whitelist=$d/bx.txt tmp_dir=$d/tmp tech=10xv3 strand=--fr-stranded \
+            --directory $d \
             --nolock \
             --use-conda --conda-prefix {params.conda_prefix} \
             --conda-create-envs-only \
             --cores {threads} 2>&1 | tee {log}
+
+        rm -rf $d
         """
 
 rule run_scUTRquant:
@@ -146,7 +154,7 @@ rule run_scUTRquant:
         # kallisto bus spends most of its time loading the index (single-threaded),
         # so it is faster to run several libraries at once with fewer threads
         # each than one library with all of them (benchmarks/scUTRquant_threads)
-        kallisto_bus_threads = lambda w, threads: max(1, min(10, threads-2))
+        kallisto_bus_threads = lambda w, threads: max(1, min(6, threads-2))
     shell:
         """
         snakemake -s {input.snakefile} \
