@@ -1,0 +1,10 @@
+name: isoseq
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - isoseq=26.2.0
+  - lima=26.2.1
+  - pbmm2=26.2.99
+  - pbcoretools=0.8.1

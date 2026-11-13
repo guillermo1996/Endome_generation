@@ -1,0 +1,10 @@
+##########################################################
+# Config to generate all possible ENDomes from Ebbert and Wood data
+
+pipeline_runs:
+  - dataset: "Wood"
+    group: ["control", "case", "all"]
+    merge_preset: ["st_ref", "iso_ref", "iso"]
+  - dataset: "Ebbert"
+    group: ["control", "case", "all"]
+    merge_preset: ["st_ref", "iso_ref", "iso"]

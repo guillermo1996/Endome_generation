@@ -1,0 +1,10 @@
+##########################################################
+# Config to generate ENDomes from Isomiga
+
+pipeline_runs:
+  - dataset: "Isomiga_full"
+    pre-assembled_gtf: "data/IsoMiga/isomiga_full.gtf"
+  - dataset: "Isomiga_gencode"
+    pre-assembled_gtf: "data/IsoMiga/isomiga_gencode.gtf"
+  - dataset: "Isomiga_novel"
+    pre-assembled_gtf: "data/IsoMiga/isomiga_novel.gtf"

@@ -32,13 +32,39 @@ pipeline_defaults:
 pipeline_runs:
   - dataset: "Wood"
     group: "control"
+    merge_preset: ["st_ref", "iso_ref"]
     orf_filter_preset: ["ref_pc", "pc_novel"]
     trunc_site: ["3p", "5p"]
     trunc_width: [500, 300]
   - dataset: "Wood"
     group: "control"
-    trunc_site: ["5p"]
-    trunc_width: [300]
+    merge_preset: ["st_ref", "iso_ref"]
+    trunc_site: "5p"
+    trunc_width: 300
+  - dataset: "Shimada"
+    group: ["all"]
+    merge_preset: ["pb_ref"]
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: ["3p", "5p"]
+    trunc_width: 500
+  - dataset: "Shimada"
+    group: ["all"]
+    merge_preset: ["pb_ref"]
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "5p"
+    trunc_width: 300
+  - dataset: "ENCODE_RushAD"
+    group: ["control"]
+    merge_preset: ["pb_ref"]
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: ["3p", "5p"]
+    trunc_width: [500, 300]
+  - dataset: "ENCODE_RushAD"
+    group: ["control"]
+    merge_preset: ["pb_ref"]
+    orf_filter_preset: ["ref_pc", "pc_novel"]
+    trunc_site: "5p"
+    trunc_width: 300
   - dataset: "gencode_baseline"
     pre-assembled_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
     skip_pigeon_filter: True
@@ -58,6 +84,7 @@ pipeline_runs:
 
 ## Step 01 - Alignment
 minimap2_preset: default
+pacbio_preset: isoseq_express
 
 ## Step 02 - Transcriptome Assembly
 stringtie_assembly_preset: unguided
@@ -106,7 +133,8 @@ benchmark_path: ".benchmarks"
 ###   group      group sample group within the dataset (e.g. control | case); in pipeline_runs, "all" = every sample
 ###   sample_id  unique sample name within the dataset
 ###   file_type  fastq = raw reads, the sample starts at 01 Alignment
-###              bam   = aligned and coordinate-sorted reads, the sample skips to 02 Assembly
+###              bam = aligned and coordinate-sorted reads, the sample skips to 02 Assembly
+###              hifi_bam = unaligned PacBio HiFi/CCS reads. Needs a pb* merge preset.
 ###   path       path to the FASTQ (.fastq / .fastq.gz) or BAM file
 input_endome_samples: "data/endome_input_samples.tsv"
 

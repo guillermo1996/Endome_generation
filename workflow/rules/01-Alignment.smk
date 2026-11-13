@@ -9,6 +9,7 @@ step01 = register_step(
     name="01-Alignment",
     params={
         "minimap2_settings": build_tool_settings(config, "minimap2_settings", "minimap2_preset"),
+        "pacbio_settings": build_tool_settings(config, "pacbio_settings", "pacbio_preset"),
     },
 )
 
@@ -30,11 +31,39 @@ def get_toy_samples(wildcards):
 
 ## Rules
 ################################################################################
+rule pychopper:
+    message: """--- Running Pychopper - {wildcards.sample} ----"""
+    input:
+        fastq = get_input_fastq
+    output:
+        fq = step01.path("Pychopper/{sample}_pychopper.fq"),
+        report = step01.path("Pychopper/Others/{sample}_pychopper.report.pdf"),
+        unclassified = step01.path("Pychopper/Others/{sample}_pychopper.unclassified.fq"),
+        rescued = step01.path("Pychopper/Others/{sample}_pychopper.rescued.fq"),
+        stats = step01.path("Pychopper/Others/{sample}_pychopper.stats"),
+        scores = step01.path("Pychopper/Others/{sample}_pychopper.scores"),
+    log: step01.logs("Pychopper/{sample}.log")
+    benchmark: step01.benchmark("Pychopper/{sample}.tsv")
+    params:
+        cdna_kit = "PCS111"  # Ebbert cDNA kit (brain_cDNA_discovery pipeline)
+    threads: 10
+    conda: "../envs/pychopper.yaml"
+    shell:
+        """
+        pychopper -t {threads} -Q 9 -k {params.cdna_kit} \\
+            -r {output.report} \\
+            -u {output.unclassified} \\
+            -w {output.rescued} \\
+            -S {output.stats} \\
+            -A {output.scores} \\
+            {input.fastq} {output.fq} > {log} 2>&1
+        """
+
 rule minimap2_align:
     message: """--- Runing Minimap2 k{params.k} - {wildcards.sample} ----"""
     input:
         genome = ref_genome,
-        fastq = get_input_fastq,
+        fastq = rules.pychopper.output.fq,   # was: get_input_fastq
     output: 
         # sam = temporary(step01.path("Minimap2/{sample}.sam")),
         sam = step01.path("Minimap2/{sample}.sam"),

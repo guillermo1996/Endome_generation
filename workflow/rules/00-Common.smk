@@ -136,8 +136,8 @@ def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) ->
 
     ### Ensure data is valid (only for the datasets that are run)
     selected = samples[samples["dataset"].isin(read_inputs["dataset"])]
-    if not selected["file_type"].isin(["fastq", "bam"]).all():
-        raise ValueError(f"file_type must be `fastq` or `bam` for every sample of the selected datasets")
+    if not selected["file_type"].isin(["fastq", "bam", "hifi_bam", "flnc"]).all():
+        raise ValueError(f"file_type must be `fastq`, `bam`, `hifi_bam` or `flnc` for every sample of the selected datasets")
     if selected["path"].isna().any():
         raise ValueError(f"Samples without a path: {selected[selected['path'].isna()]['sample_id'].tolist()}")
     if selected.duplicated(["dataset", "sample_id"]).any():
@@ -151,6 +151,19 @@ def load_endome_samples(endome_table: pd.DataFrame, sample_sheet: str = None) ->
         if not groups or (group != "all" and group not in groups):
             raise ValueError(f"No samples for {dataset}.{group} in {sample_sheet} (groups: {groups + ['all'] if groups else 'none'}). "
                              f"Check `group` in pipeline_runs, or add a `pre-assembled_gtf` if it is an external transcriptome")
+
+    ### pb* presets collapse PacBio HiFi reads while st* and iso* start from per-sample StringTie assemblies
+    merges = endome_table.loc[from_reads, ["dataset", "group", "merge_method"]].drop_duplicates()
+    for dataset, group, merge_method in merges.itertuples(index = False):
+        rows = selected[selected["dataset"] == dataset]
+        if group != "all":
+            rows = rows[rows["group"] == group]
+        is_pacbio = rows["file_type"].isin(["hifi_bam", "flnc"])
+        if merge_method.startswith("pb") and not is_pacbio.all():
+            raise ValueError(f"{dataset}.{group}.{merge_method}: pb* merge presets need file_type `hifi_bam` or `flnc` for every sample")
+        if not merge_method.startswith("pb") and is_pacbio.any():
+            raise ValueError(f"{dataset}.{group}.{merge_method}: `hifi_bam` and `flnc` samples need a pb* merge preset")
+
     return samples
 
 ################################################################################

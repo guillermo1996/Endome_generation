@@ -19,6 +19,15 @@ minimap2_settings:
     minimap2_kmer:  15
     minimap2_flags: "-ax splice -uf --MD --secondary=no"
 
+## Selected by: pacbio_preset (samples with file_type `hifi_bam`)
+pacbio_settings:
+  isoseq_express:
+    min_rq: 0.99
+    primers: "config/primers/IsoSeq_Express.fasta"
+    lima_flags: "--isoseq"
+    refine_flags: "--require-polya"
+    pbmm2_flags: "--preset ISOSEQ --sort"
+
 ############################
 # 02. TRANSCRIPTOME ASSEMBLY
 ############################
@@ -37,10 +46,16 @@ stringtie_assembly_settings:
     assembly_flags: "-L --rf"
 
 ## Selected by: merge_preset (list)
-### Preset names starting with "st" merge with StringTie, those starting with
-### "iso" merge with isomatch.
-###   use_reference  add `ref_annotation` as one more input to the merge
-###   merge_flags    extra flags for the merge command
+### Preset names starting with "st" merge with StringTie and those starting with
+### "iso" with isomatch. Those starting with "pb" collapse the reads of all the
+### PacBio samples together with isoseq collapse (file_type: hifi_bam only).
+###   use_reference   st*: give `ref_annotation` to the merge (-G)
+###                   iso*, pb*: add every GENCODE transcript
+###   merge_flags     st*: extra flags for `stringtie --merge`
+###   min_fpkm/tpm    iso*: per-sample abundance filter before the merge
+###   collapse_flags  pb*: flags for `isoseq collapse`
+###   min_sample_cnt  iso*, pb*: samples an alternative-end or novel transcript must be found in
+###   end_match_bp    max TSS/TES distance (nt) for a collapsed transcript to be the GENCODE transcript
 merge_settings:
   st_ref:
     use_reference: True
@@ -50,32 +65,59 @@ merge_settings:
     merge_flags: "-L"
   iso_ref:
     use_reference: True
-    merge_flags: ""
     min_fpkm: 1.0
     min_tpm: 1.0
-    min_sample_cnt: 0
-  iso_ref_lean:
-    use_reference: True
-    merge_flags: ""
-    min_fpkm: 0.0
-    min_tpm: 0.0
-    min_sample_cnt: 0
+    min_sample_cnt: 1
+    end_match_bp: 50
   iso:
     use_reference: False
-    merge_flags: ""
     min_fpkm: 1.0
     min_tpm: 1.0
-  iso_ref_long:
+    min_sample_cnt: 1
+    end_match_bp: 50
+  pb_ref:
     use_reference: True
-    merge_flags: "--tss-policy longer --tes-policy longer"
-    min_fpkm: 1.0
+    collapse_flags: "--do-not-collapse-extra-5exons"
     min_tpm: 1.0
-  iso_ref_bed:
-    use_reference: True
-    merge_flags: ""
-    min_fpkm: 1.0
+    min_sample_reads: 2
+    min_sample_cnt: 2
+    end_match_bp: 50
+  pb:
+    use_reference: False
+    collapse_flags: "--do-not-collapse-extra-5exons"
     min_tpm: 1.0
-    use_bed_files: True
+    min_sample_reads: 2
+    min_sample_cnt: 2
+    end_match_bp: 50
+
+  # iso_ref:
+  #   use_reference: True
+  #   merge_flags: ""
+  #   min_fpkm: 1.0
+  #   min_tpm: 1.0
+  #   min_sample_cnt: 0
+  # iso_ref_lean:
+  #   use_reference: True
+  #   merge_flags: ""
+  #   min_fpkm: 0.0
+  #   min_tpm: 0.0
+  #   min_sample_cnt: 0
+  # iso:
+  #   use_reference: False
+  #   merge_flags: ""
+  #   min_fpkm: 1.0
+  #   min_tpm: 1.0
+  # iso_ref_long:
+  #   use_reference: True
+  #   merge_flags: "--tss-policy longer --tes-policy longer"
+  #   min_fpkm: 1.0
+  #   min_tpm: 1.0
+  # iso_ref_bed:
+  #   use_reference: True
+  #   merge_flags: ""
+  #   min_fpkm: 1.0
+  #   min_tpm: 1.0
+  #   use_bed_files: True
 
 ## Selected by: gffcompare_preset
 gffcompare_settings:
