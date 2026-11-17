@@ -13,14 +13,14 @@ pipeline_defaults:
   # Dataset defaults
   group: "none"
   # Defaults: Step 02 - Transcriptome Assembly
-  merge_preset: ["st_ref"]
+  merge_preset: ["iso_ref"]
   # Defaults: Step 03 - Artifact Removal
   skip_pigeon_filter: False
   # Defaults: Step 04 - ORF Identification
-  orf_filter_preset: ["pc_novel"]
+  orf_filter_preset: ["pc_any"]
   # Step 05 defaults
   trunc_site: ["3p", "5p"]
-  trunc_width: [500, 300]
+  trunc_width: ["3p": 500, "5p": [300, 500]]
   # Defaults: Step 07 - UTR Usage
   pseudobulk_preset: "default"
   satuRn_preset: "default"
@@ -30,53 +30,57 @@ pipeline_defaults:
   pre-truncated_merge_tsv: null # Input a custom truncated merge TSV to skip truncation
 
 pipeline_runs:
+  # Wood dataset
   - dataset: "Wood"
     group: "control"
-    merge_preset: ["st_ref", "iso_ref"]
-    orf_filter_preset: ["ref_pc", "pc_novel"]
+    merge_preset: ["iso_ref", "st_ref"]
+    orf_filter_preset: ["pc_ref", "pc_any"]
     trunc_site: ["3p", "5p"]
-    trunc_width: [500, 300]
-  - dataset: "Wood"
-    group: "control"
-    merge_preset: ["st_ref", "iso_ref"]
-    trunc_site: "5p"
-    trunc_width: 300
-  - dataset: "Shimada"
-    group: ["all"]
-    merge_preset: ["pb_ref"]
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: ["3p", "5p"]
-    trunc_width: 500
-  - dataset: "Shimada"
-    group: ["all"]
-    merge_preset: ["pb_ref"]
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: "5p"
-    trunc_width: 300
-  - dataset: "ENCODE_RushAD"
-    group: ["control"]
-    merge_preset: ["pb_ref"]
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: ["3p", "5p"]
-    trunc_width: [500, 300]
-  - dataset: "ENCODE_RushAD"
-    group: ["control"]
-    merge_preset: ["pb_ref"]
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: "5p"
-    trunc_width: 300
-  - dataset: "gencode_baseline"
-    pre-assembled_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
-    skip_pigeon_filter: True
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: "3p"
-    trunc_width: [null, "UTR", "UTR_exact"]
-  - dataset: "gencode_skip"
-    pre-truncated_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
-    skip_pigeon_filter: True
-    orf_filter_preset: ["ref_pc", "pc_novel"]
-    trunc_site: "3p"
-    trunc_width: null 
+    trunc_width: ["3p": 500, "5p": [300, 500]]
+  # # Ebbert dataset
+  # - dataset: "Ebbert"
+  #   group: "control"
+  #   merge_preset
+  # # Shimada dataset
+  # - dataset: "Shimada"
+  #   group: ["all"]
+  #   merge_preset: ["pb_ref"]
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: ["3p", "5p"]
+  #   trunc_width: 500
+  # - dataset: "Shimada"
+  #   group: ["all"]
+  #   merge_preset: ["pb_ref"]
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: "5p"
+  #   trunc_width: 300
+  # # ENCODE_RushAD dataset
+  # - dataset: "ENCODE_RushAD"
+  #   group: ["control"]
+  #   merge_preset: ["pb_ref"]
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: ["3p", "5p"]
+  #   trunc_width: [500, 300]
+  # - dataset: "ENCODE_RushAD"
+  #   group: ["control"]
+  #   merge_preset: ["pb_ref"]
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: "5p"
+  #   trunc_width: 300
+  # # Truncated Gencode
+  # - dataset: "gencode_baseline"
+  #   pre-assembled_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
+  #   skip_pigeon_filter: True
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: "3p"
+  #   trunc_width: [null, "UTR", "UTR_exact"]
+  # # Non-truncated Gencode
+  # - dataset: "gencode_skip"
+  #   pre-truncated_gtf: "/home/MinaRyten/Guillermo/Resources/GENCODE/gencode.v48.annotation.gtf"
+  #   skip_pigeon_filter: True
+  #   orf_filter_preset: ["ref_pc", "pc_novel"]
+  #   trunc_site: "3p"
+  #   trunc_width: null 
     
 ############################
 # 02. TOOL PRESETS

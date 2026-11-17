@@ -3,8 +3,14 @@
 
 pipeline_runs:
   - dataset: "Wood"
-    group: ["control", "case", "all"]
+    group: ["control", "all"]
     merge_preset: ["st_ref", "iso_ref", "iso"]
   - dataset: "Ebbert"
-    group: ["control", "case", "all"]
+    group: ["control", "all"]
     merge_preset: ["st_ref", "iso_ref", "iso"]
+  - dataset: "Shimada"
+    group: "all"
+    merge_preset: ["pb_ref"]
+  - dataset: "ENCODE_RushAD"
+    group: "all"
+    merge_preset: ["pb_ref"]

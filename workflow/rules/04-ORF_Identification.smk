@@ -53,13 +53,15 @@ rule ORF_annotate:
         gtf = step04.path("ORFannotate/{prefix}/ORFannotate_annotated.gtf"),
         protein_fa = step04.path("ORFannotate/{prefix}/protein.fa"),
         utr3_fa = step04.path("ORFannotate/{prefix}/utr3.fa"),
-        utr5_fa = step04.path("ORFannotate/{prefix}/utr5.fa")
+        utr5_fa = step04.path("ORFannotate/{prefix}/utr5.fa"),
+        cpat_dir = directory(step04.path("ORFannotate/{prefix}/CPAT"))
     log: step04.logs("ORFannotate/{prefix}.log")
     benchmark: step04.benchmark("ORFannotate/{prefix}.tsv")
     params:
         out_dir = lambda w, output: Path(output.summary_tsv).parent,
         skip_pigeon_filter = lambda wc: get_input_setting(wc.prefix, "skip_pigeon_filter"),
     threads: 1
+    shadow: "minimal"
     conda: orfannotate_env_url
     shell:
         "python {input.script} --gtf {input.gtf} --fa {input.ref_genome} --outdir {params.out_dir} 2>&1 | tee {log}"

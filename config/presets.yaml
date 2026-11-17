@@ -156,8 +156,7 @@ pigeon_settings:
 ## Selected by: orfannotate_preset
 orfannotate_settings:
   default:
-    version: "v1.0.0"
-
+    version: "v1.1.3"
 
 ## Selected by: orf_filter_preset (list)
 ### ORF filter presets: which transcripts 04b keeps. Every list key takes ["all"]
@@ -169,25 +168,25 @@ orfannotate_settings:
 ###   ref_isoform_filter         "TRUE"/"FALSE" keeps only (non-)reference isoforms
 ###                              (pigeon FSM, alternative ends included); "" = no filter
 orf_filter_settings:
-  ref_pc:                      # Reference protein-coding isoforms (alternative 5'/3' ends included) with a coding ORF
+  pc_ref:                      # Reference protein-coding isoforms (alternative 5'/3' ends included) with a coding ORF
     valid_ref_gene_type:       ["protein_coding"]
     valid_ref_tx_type:         ["protein_coding"]
     valid_orfannotate_type:    ["coding"]
     valid_structural_category: ["all"]
     ref_isoform_filter:        "TRUE"
-  pc_novel:                     # Every coding transcript except fragments (ISM): new genes and isoforms kept
+  pc_any:                      # Every coding transcript except fragments (ISM): new genes and isoforms kept
     valid_ref_gene_type:       ["all"]
     valid_ref_tx_type:         ["all"]
     valid_orfannotate_type:    ["coding"]
     valid_structural_category: ["full-splice_match", "novel_in_catalog", "novel_not_in_catalog", "antisense", "genic", "genic_intron", "intergenic", "fusion"]
     ref_isoform_filter:        ""
-  pc_all:                      # Every transcript with a coding ORF, any category
+  pc_ism:                      # Every transcript with a coding ORF, any category
     valid_ref_gene_type:       ["all"]
     valid_ref_tx_type:         ["all"]
     valid_orfannotate_type:    ["coding"]
     valid_structural_category: ["all"]
     ref_isoform_filter:        ""
-  all:                         # No filtering (debugging)
+  tx_all:                      # No filtering (debugging)
     valid_ref_gene_type:       ["all"]
     valid_ref_tx_type:         ["all"]
     valid_orfannotate_type:    ["all"]

@@ -53,6 +53,29 @@ wildcard_names = {
 def as_list(value) -> list:
     return value if isinstance(value, list) else [value]
 
+def get_trunc_pairs(trunc_site, trunc_width) -> list:
+    """(trunc_site, trunc_width) pairs to build for one run"""
+    sites = as_list(trunc_site)
+    widths = as_list(trunc_width)
+
+    ### Return all combinations if widths are not dicts
+    if not any(isinstance(width, dict) for width in widths):
+        return [(site, width) for site in sites for width in widths]
+
+    ### Widths per site
+    if not all(isinstance(width, dict) for width in widths):
+        raise ValueError(f"trunc_width mixes plain widths and per-site widths: {trunc_width}")
+    per_site = {}
+    for mapping in widths:
+        for site, site_widths in mapping.items():
+            if site in per_site:
+                raise ValueError(f"trunc_width gives the widths of '{site}' twice: {trunc_width}")
+            per_site[site] = as_list(site_widths)
+    missing = [site for site in sites if site not in per_site]
+    if missing:
+        raise ValueError(f"trunc_width has no widths for trunc_site {missing}: {trunc_width}")
+    return [(site, width) for site in sites for width in per_site[site]]
+
 def build_endome_table(defaults: dict, inputs: list) -> pd.DataFrame:
     """One row per ENDome to build. Every key becomes a column, and keys given as a list are combined."""
     rows = []
@@ -63,8 +86,11 @@ def build_endome_table(defaults: dict, inputs: list) -> pd.DataFrame:
         if entry["pre-truncated_gtf"]:
             entry["orf_filter_preset"] = "ext"
 
+        ### trunc_site and trunc_width are paired by get_trunc_pairs(), the other keys are combined
+        trunc_pairs = get_trunc_pairs(entry.pop("trunc_site"), entry.pop("trunc_width"))
         values = {key: as_list(value) for key, value in entry.items()}
-        rows += [dict(zip(values, combo)) for combo in itertools.product(*values.values())]
+        for combo in itertools.product(*values.values()):
+            rows += [{**dict(zip(values, combo)), "trunc_site": site, "trunc_width": width} for site, width in trunc_pairs]
 
     table = pd.DataFrame(rows, dtype = object).rename(columns = wildcard_names)
     ### trunc_width: null keeps the full transcripts (no truncation)

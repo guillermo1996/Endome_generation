@@ -31,42 +31,42 @@ def get_toy_samples(wildcards):
 
 ## Rules
 ################################################################################
-rule pychopper:
-    message: """--- Running Pychopper - {wildcards.sample} ----"""
-    input:
-        fastq = get_input_fastq
-    output:
-        fq = step01.path("Pychopper/{sample}_pychopper.fq"),
-        report = step01.path("Pychopper/Others/{sample}_pychopper.report.pdf"),
-        unclassified = step01.path("Pychopper/Others/{sample}_pychopper.unclassified.fq"),
-        rescued = step01.path("Pychopper/Others/{sample}_pychopper.rescued.fq"),
-        stats = step01.path("Pychopper/Others/{sample}_pychopper.stats"),
-        scores = step01.path("Pychopper/Others/{sample}_pychopper.scores"),
-    log: step01.logs("Pychopper/{sample}.log")
-    benchmark: step01.benchmark("Pychopper/{sample}.tsv")
-    params:
-        cdna_kit = "PCS111"  # Ebbert cDNA kit (brain_cDNA_discovery pipeline)
-    threads: 10
-    conda: "../envs/pychopper.yaml"
-    shell:
-        """
-        pychopper -t {threads} -Q 9 -k {params.cdna_kit} \\
-            -r {output.report} \\
-            -u {output.unclassified} \\
-            -w {output.rescued} \\
-            -S {output.stats} \\
-            -A {output.scores} \\
-            {input.fastq} {output.fq} > {log} 2>&1
-        """
+# rule pychopper:
+#     message: """--- Running Pychopper - {wildcards.sample} ----"""
+#     input:
+#         fastq = get_input_fastq
+#     output:
+#         fq = step01.path("Pychopper/{sample}_pychopper.fq"),
+#         report = step01.path("Pychopper/Others/{sample}_pychopper.report.pdf"),
+#         unclassified = step01.path("Pychopper/Others/{sample}_pychopper.unclassified.fq"),
+#         rescued = step01.path("Pychopper/Others/{sample}_pychopper.rescued.fq"),
+#         stats = step01.path("Pychopper/Others/{sample}_pychopper.stats"),
+#         scores = step01.path("Pychopper/Others/{sample}_pychopper.scores"),
+#     log: step01.logs("Pychopper/{sample}.log")
+#     benchmark: step01.benchmark("Pychopper/{sample}.tsv")
+#     params:
+#         cdna_kit = "PCS111"  # Ebbert cDNA kit (brain_cDNA_discovery pipeline)
+#     threads: 10
+#     conda: "../envs/pychopper.yaml"
+#     shell:
+#         """
+#         pychopper -t {threads} -Q 9 -k {params.cdna_kit} \\
+#             -r {output.report} \\
+#             -u {output.unclassified} \\
+#             -w {output.rescued} \\
+#             -S {output.stats} \\
+#             -A {output.scores} \\
+#             {input.fastq} {output.fq} > {log} 2>&1
+#         """
 
 rule minimap2_align:
     message: """--- Runing Minimap2 k{params.k} - {wildcards.sample} ----"""
     input:
         genome = ref_genome,
-        fastq = rules.pychopper.output.fq,   # was: get_input_fastq
+        fastq = get_input_fastq
     output: 
-        # sam = temporary(step01.path("Minimap2/{sample}.sam")),
-        sam = step01.path("Minimap2/{sample}.sam"),
+        sam = temporary(step01.path("Minimap2/{sample}.sam")),
+        #sam = step01.path("Minimap2/{sample}.sam"),
     log: step01.logs("Minimap2/{sample}.log")
     benchmark: step01.benchmark("Minimap2/{sample}.tsv")
     params:
@@ -81,7 +81,7 @@ rule samtools_sort:
     input: 
         sam = rules.minimap2_align.output.sam
     output: 
-        bam = step01.path("Samtools_sort/{sample}_sorted.bam"),
+        bam = temporary(step01.path("Samtools_sort/{sample}_sorted.bam")),
     log: step01.logs("Samtools_sort/{sample}.log"),
     benchmark: step01.benchmark("Samtools_sort/{sample}.tsv"),
     resources:
